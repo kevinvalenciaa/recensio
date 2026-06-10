@@ -98,11 +98,17 @@ describe("renderReviewBody", () => {
     expect(body).toContain(`<!-- recensio:commit:${"a".repeat(40)} -->`);
     expect(body).toContain("## 🔁 REQUEST CHANGES");
     expect(body).toContain("**Mergability Confidence: 2/5**");
+    // summary renders as prose directly under the verdict, per the spec's section 1
+    expect(body).toContain("Adds a users endpoint; SQL injection found.");
+    expect(body).not.toContain("### Summary");
     expect(body).toContain("| **OVERALL** | 100% | **60/100** |");
+    expect(body).toContain("**✅ Verified findings:** 1 below (not anchorable in the diff)");
     expect(body).toContain("### Findings outside the visible diff");
     expect(body).toContain("### ⚠️ Unconfirmed (confidence 50–79)");
     expect(body).toContain("**To confirm:** run the stress test");
     expect(body).toContain("### Required tests");
+    expect(body).toContain("### Pre-merge checklist");
+    expect(body).toContain("- [ ] Every new input surface is validated — name param unvalidated");
     expect(body).toContain("### Top actions");
     expect(body).toContain("### 🟢 Nits (batched, non-blocking)");
     expect(body).toContain("Discarded candidates (1)");

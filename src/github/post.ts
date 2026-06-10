@@ -29,7 +29,9 @@ export function renderReviewBody(
 ): string {
   const s: string[] = [];
   s.push(`${REVIEW_MARKER}\n<!-- recensio:commit:${ctx.headSha} -->`);
-  s.push(`## ${VERDICT_LABELS[review.verdict]}\n\n**Mergability Confidence: ${review.mergability_confidence}/5** · Verdict: **${review.verdict.replace(/_/g, " ")}**`);
+  // Sections mirror the review spec's Phase 5 deliverable, in its order
+  // (discarded renders last because the spec calls it an appendix).
+  s.push(`## ${VERDICT_LABELS[review.verdict]}\n\n**Mergability Confidence: ${review.mergability_confidence}/5**\n\n${review.summary.trim()}`);
 
   s.push(
     [
@@ -44,7 +46,13 @@ export function renderReviewBody(
     ].join("\n"),
   );
 
-  s.push(`### Summary\n\n${review.summary.trim()}`);
+  const inlineCount = review.findings.length - fallbacks.length;
+  if (review.findings.length > 0) {
+    const parts = [];
+    if (inlineCount > 0) parts.push(`${inlineCount} posted inline on the changed lines`);
+    if (fallbacks.length > 0) parts.push(`${fallbacks.length} below (not anchorable in the diff)`);
+    s.push(`**✅ Verified findings:** ${parts.join(" · ")}`);
+  }
 
   if (fallbacks.length > 0) {
     const reasons: Record<FallbackFinding["reason"], string> = {
@@ -63,6 +71,10 @@ export function renderReviewBody(
 
   if (review.required_tests.length > 0) {
     s.push(`### Required tests\n\n${review.required_tests.map((t) => `- [ ] ${t}`).join("\n")}`);
+  }
+
+  if (review.pre_merge_checklist.trim() !== "") {
+    s.push(`### Pre-merge checklist\n\n${review.pre_merge_checklist.trim()}`);
   }
 
   if (review.top_actions.length > 0) {

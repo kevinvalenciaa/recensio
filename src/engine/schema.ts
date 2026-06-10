@@ -21,7 +21,7 @@ export const FindingSchema = z.strictObject({
   body: z
     .string()
     .describe(
-      "Markdown containing **Issue**, **Risk**, **Trigger**, and **Verification trail** lines, with the offending code quoted",
+      "Markdown containing **Issue**, **Risk**, **Trigger**, and **Verification trail** — one line each, quoting at most 3 lines of offending code",
     ),
   suggestion: z
     .string()
@@ -51,15 +51,20 @@ export const SubmitReviewSchema = z.strictObject({
   summary: z
     .string()
     .describe(
-      "PR intent, what the diff actually does vs claims, mergability rationale, checklist state, one good decision",
+      "2-4 sentences only: the PR's intent, whether you would let this merge to production today, and the single most driving factor. No headings, no lists.",
     ),
   findings: z.array(FindingSchema).describe("Verified findings only (confidence >= 80, severity P0-P2)"),
   unconfirmed: z.array(UnconfirmedSchema).describe("Confidence 50-79 items"),
   discarded: z
     .array(z.string())
     .describe('One line each: "[candidate] — discarded (confidence NN): [disproving evidence]"'),
-  required_tests: z.array(z.string()),
-  top_actions: z.array(z.string()).describe("Ranked by risk reduction, max 5"),
+  required_tests: z.array(z.string()).describe("One line each: test case → file/function it must cover"),
+  pre_merge_checklist: z
+    .string()
+    .describe(
+      "The spec's Pre-Merge Checklist as a markdown checkbox list: same 11 items in order, [x] verified or [ ] with a short reason, one line per item",
+    ),
+  top_actions: z.array(z.string()).describe("Ranked by risk reduction, max 5, one line each"),
   nits_markdown: z.string().describe("ALL P3 nits as one batched markdown list; empty string if none"),
 });
 
@@ -82,8 +87,24 @@ export function validateSemantics(review: ReviewResult): { ok: true; review: Rev
     review.scores[key] = clamp(review.scores[key], 0, 100);
   }
 
+  if (review.summary.length > 1600) {
+    errors.push(
+      `summary is ${review.summary.length} chars — compress to 2-4 sentences (intent + would-you-merge-today + driving factor)`,
+    );
+  }
+  if (review.pre_merge_checklist.length > 1800) {
+    errors.push(
+      `pre_merge_checklist is ${review.pre_merge_checklist.length} chars — one line per checklist item, nothing else`,
+    );
+  }
+
   const checkFinding = (f: Finding, where: string) => {
     f.confidence = clamp(f.confidence, 0, 100);
+    if (f.body.length > 1600) {
+      errors.push(
+        `${where}.body is ${f.body.length} chars — keep Issue/Risk/Trigger/Verification trail to one line each (max 3 quoted code lines)`,
+      );
+    }
     if (!/^F\d+$/.test(f.id)) errors.push(`${where}.id must match F<number>, got "${f.id}"`);
     if (!Number.isInteger(f.line) || f.line < 1) errors.push(`${where}.line must be a positive integer, got ${f.line}`);
     if (f.end_line !== undefined) {

@@ -76,7 +76,28 @@ describe("submitReviewJsonSchema", () => {
     // every property must be listed in required (or be genuinely optional)
     const props = Object.keys((schema as any).properties);
     expect(props).toEqual(
-      expect.arrayContaining(["verdict", "scores", "findings", "unconfirmed", "nits_markdown"]),
+      expect.arrayContaining(["verdict", "scores", "findings", "unconfirmed", "pre_merge_checklist", "nits_markdown"]),
     );
+  });
+});
+
+describe("brevity caps", () => {
+  it("bounces an over-long summary back as a validation error", () => {
+    const r = validReview({ summary: "x".repeat(2000) });
+    const out = validateSemantics(r);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.errors.join("\n")).toMatch(/summary is 2000 chars — compress to 2-4 sentences/);
+  });
+
+  it("bounces an over-long finding body", () => {
+    const r = validReview();
+    r.findings[0]!.body = "y".repeat(2000);
+    const out = validateSemantics(r);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.errors.join("\n")).toMatch(/findings\[0\]\.body is 2000 chars/);
+  });
+
+  it("accepts compact content", () => {
+    expect(validateSemantics(validReview()).ok).toBe(true);
   });
 });
