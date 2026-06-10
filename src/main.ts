@@ -19,6 +19,7 @@ async function main(): Promise<void> {
     model: core.getInput("model"),
     effort: core.getInput("effort"),
     minLoc: core.getInput("min-loc"),
+    autoReview: core.getInput("auto-review"),
     reviewOnSynchronize: core.getInput("review-on-synchronize"),
     neverApprove: core.getInput("never-approve"),
     maxTurns: core.getInput("max-turns"),

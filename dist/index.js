@@ -36620,10 +36620,6 @@ ${review.discarded.map((d) => `- ${d}`).join("\n")}
 </details>`
     );
   }
-  s.push(
-    `---
-_Recensio \xB7 ${ctx.model} (effort: ${ctx.effort}) \xB7 ${ctx.usageFooter} \xB7 comment \`@recensio\` to re-review_`
-  );
   return s.join("\n\n");
 }
 function renderUnconfirmed(f) {
@@ -36703,12 +36699,11 @@ function foldCommentsIntoBody(body, comments) {
 
 ${c.body}`;
   });
-  const section = `### Inline findings (could not be anchored)
+  return `${body}
+
+### Inline findings (could not be anchored)
 
 ${items.join("\n\n---\n\n")}`;
-  const footerIdx = body.lastIndexOf("\n---\n_Recensio");
-  if (footerIdx >= 0) return body.slice(0, footerIdx) + "\n\n" + section + body.slice(footerIdx);
-  return body + "\n\n" + section;
 }
 function extractErrorText(err) {
   const parts = [err?.message ?? String(err)];
@@ -36736,6 +36731,9 @@ var COMMAND_RE = /(^|\s)[@/]recensio\b/i;
 var AUTO_ACTIONS = /* @__PURE__ */ new Set(["opened", "ready_for_review", "reopened"]);
 function parseEvent(eventName, payload, cfg) {
   if (eventName === "pull_request" || eventName === "pull_request_target") {
+    if (!cfg.autoReview) {
+      return { kind: "skip", reason: "auto-review-disabled", detail: 'reviews run on @recensio comments; set auto-review: "true" to review PR events' };
+    }
     const action = payload?.action ?? "";
     const pr = payload?.pull_request;
     if (!pr) return { kind: "skip", reason: "not-a-pr", detail: "payload has no pull_request" };
@@ -52425,12 +52423,7 @@ async function runReview(trigger, cfg, ok, deps = {}) {
       headSha: cloned.headSha,
       readLines: tools.readLines
     });
-    const body = renderReviewBody(review, placement.fallbacks, {
-      headSha: cloned.headSha,
-      model: cfg.model,
-      effort: cfg.effort,
-      usageFooter: meter.footerLine()
-    });
+    const body = renderReviewBody(review, placement.fallbacks, { headSha: cloned.headSha });
     const placed = {
       event: mapVerdict(review.verdict, cfg.neverApprove),
       verdict: review.verdict,
@@ -52509,6 +52502,7 @@ function buildConfig(raw) {
     model: raw.model?.trim() || DEFAULTS2.model,
     effort: parseEffort(raw.effort, DEFAULTS2.effort),
     minLoc: parsePositiveInt(raw.minLoc, DEFAULTS2.minLoc, "min-loc"),
+    autoReview: parseBool(raw.autoReview, false),
     reviewOnSynchronize: parseBool(raw.reviewOnSynchronize, false),
     neverApprove: parseBool(raw.neverApprove, false),
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS2.maxTurns, "max-turns"),
@@ -52529,6 +52523,7 @@ async function main() {
     model: getInput("model"),
     effort: getInput("effort"),
     minLoc: getInput("min-loc"),
+    autoReview: getInput("auto-review"),
     reviewOnSynchronize: getInput("review-on-synchronize"),
     neverApprove: getInput("never-approve"),
     maxTurns: getInput("max-turns")

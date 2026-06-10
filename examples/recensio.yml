@@ -1,33 +1,30 @@
-# Recensio — PR review agent
+# Recensio — PR review agent (manual trigger)
 # Copy this file to .github/workflows/recensio.yml in any repository, then add
 # an ANTHROPIC_API_KEY secret (Settings → Secrets and variables → Actions).
 #
-# Reviews run automatically when a PR opens (≥500 changed LOC), and on demand
-# when a collaborator comments "@recensio" or "/recensio" on any PR.
+# A review runs when a collaborator with write access comments "@recensio"
+# (or "/recensio") on a pull request. Nothing runs automatically.
 
 name: Recensio
 
 on:
-  pull_request:
-    types: [opened, ready_for_review, reopened]
-    # Note: for PRs from forks, the default token is read-only and the review
-    # cannot be posted. If you need automatic reviews on fork PRs, change
-    # `pull_request` to `pull_request_target` — Recensio only reads PR code
-    # (it never executes or builds it), but review the security notes in the
-    # README before doing so. The @recensio comment path below works for fork
-    # PRs either way.
   issue_comment:
     types: [created]
+  # To ALSO review automatically when PRs open, uncomment this block and set
+  # auto-review: "true" below. Note: for PRs from forks the default token is
+  # read-only (see the fork notes in the README).
+  # pull_request:
+  #   types: [opened, ready_for_review, reopened]
 
 # One review at a time per PR; a newer trigger cancels a stale in-flight run.
 concurrency:
-  group: recensio-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: recensio-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
   contents: read # clone the PR head
   pull-requests: write # post reviews and inline comments
-  issues: write # skip/error notices and the 👀 reaction
+  issues: write # error notices and the 👀 reaction
 
 jobs:
   review:
@@ -42,8 +39,9 @@ jobs:
       - uses: YOUR_GITHUB_USERNAME/recensio@v1 # ← point at your copy of the recensio repo
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # auto-review: "true"          # review PR open/ready/reopen events too
+          # review-on-synchronize: "true"  # with auto-review: also review every push
           # model: claude-opus-4-8
           # effort: xhigh                # low | medium | high | xhigh | max
-          # min-loc: "500"               # size-gate threshold
-          # review-on-synchronize: "true"  # also review every push
+          # min-loc: "500"               # size-gate threshold for auto reviews
           # never-approve: "true"        # post approvals as comments

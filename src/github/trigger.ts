@@ -13,6 +13,9 @@ const AUTO_ACTIONS = new Set(["opened", "ready_for_review", "reopened"]);
 
 export function parseEvent(eventName: string, payload: any, cfg: Config): RoutedEvent {
   if (eventName === "pull_request" || eventName === "pull_request_target") {
+    if (!cfg.autoReview) {
+      return { kind: "skip", reason: "auto-review-disabled", detail: "reviews run on @recensio comments; set auto-review: \"true\" to review PR events" };
+    }
     const action: string = payload?.action ?? "";
     const pr = payload?.pull_request;
     if (!pr) return { kind: "skip", reason: "not-a-pr", detail: "payload has no pull_request" };

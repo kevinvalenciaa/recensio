@@ -79,6 +79,7 @@ export type RoutedEvent =
       kind: "skip";
       reason:
         | "draft"
+        | "auto-review-disabled"
         | "unsupported-event"
         | "unsupported-action"
         | "no-command"

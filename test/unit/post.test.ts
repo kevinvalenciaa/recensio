@@ -46,7 +46,7 @@ function placed(overrides: Partial<PlacedReview> = {}): PlacedReview {
   return {
     event: "REQUEST_CHANGES",
     verdict: "REQUEST_CHANGES",
-    body: "## review body\n\n---\n_Recensio · model (effort: xhigh) · footer · comment `@recensio` to re-review_",
+    body: "## review body",
     comments: [
       { path: "src/a.ts", line: 11, side: "RIGHT", body: "**[P0][INTRODUCED] x**" },
       { path: "src/a.ts", line: 20, side: "RIGHT", start_line: 18, start_side: "RIGHT", body: "**[P1][INTRODUCED] y**" },
@@ -92,7 +92,7 @@ describe("renderReviewBody", () => {
     const body = renderReviewBody(
       review,
       [{ findingId: "F2", reason: "line-not-in-diff", renderedBody: "**[P2][INTRODUCED] body finding**" }],
-      { headSha: "a".repeat(40), model: "claude-opus-4-8", effort: "xhigh", usageFooter: "3 turns · 1 in / 2 out" },
+      { headSha: "a".repeat(40) },
     );
     expect(body).toContain("<!-- recensio:review -->");
     expect(body).toContain(`<!-- recensio:commit:${"a".repeat(40)} -->`);
@@ -112,12 +112,14 @@ describe("renderReviewBody", () => {
     expect(body).toContain("### Top actions");
     expect(body).toContain("### 🟢 Nits (batched, non-blocking)");
     expect(body).toContain("Discarded candidates (1)");
-    expect(body).toContain("comment `@recensio` to re-review");
+    // no usage/model footer on the posted review
+    expect(body).not.toContain("_Recensio ·");
+    expect(body).not.toContain("re-review");
   });
 
   it("omits empty sections", () => {
     const review = validReview({ unconfirmed: [], discarded: [], required_tests: [], top_actions: [], nits_markdown: "" });
-    const body = renderReviewBody(review, [], { headSha: "x", model: "m", effort: "e", usageFooter: "f" });
+    const body = renderReviewBody(review, [], { headSha: "x" });
     expect(body).not.toContain("Unconfirmed");
     expect(body).not.toContain("Nits");
     expect(body).not.toContain("Discarded");
@@ -173,8 +175,8 @@ describe("postReview", () => {
     expect(bodies[1].comments).toBeUndefined();
     expect(bodies[1].body).toContain("Inline findings (could not be anchored)");
     expect(bodies[1].body).toContain("src/a.ts:18–20");
-    // footer stays last
-    expect(bodies[1].body.trim().endsWith("re-review_")).toBe(true);
+    // folded section is appended after the original body
+    expect(bodies[1].body.indexOf("Inline findings")).toBeGreaterThan(bodies[1].body.indexOf("review body"));
   });
 
   it("falls back to an issue comment when the reviews API keeps failing", async () => {

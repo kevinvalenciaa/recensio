@@ -5,6 +5,7 @@ import { COMMAND_RE, checkCommenterPermission, parseEvent } from "../../src/gith
 import { buildConfig } from "../../src/shared/config.js";
 
 const cfg = buildConfig({ anthropicApiKey: "k", githubToken: "t" });
+const autoCfg = { ...cfg, autoReview: true };
 
 beforeAll(() => nock.disableNetConnect());
 afterEach(() => nock.cleanAll());
@@ -43,33 +44,43 @@ describe("parseEvent: pull_request", () => {
     pull_request: { number: 7, draft: false, ...overrides },
   });
 
-  it.each(["opened", "ready_for_review", "reopened"])("routes %s to an auto review", (action) => {
-    const routed = parseEvent("pull_request", { ...pr(), action }, cfg);
+  it("skips all pull_request events by default (manual trigger only)", () => {
+    for (const action of ["opened", "ready_for_review", "reopened", "synchronize"]) {
+      expect(parseEvent("pull_request", { ...pr(), action }, cfg)).toMatchObject({
+        kind: "skip",
+        reason: "auto-review-disabled",
+      });
+    }
+    expect(parseEvent("pull_request_target", pr(), cfg)).toMatchObject({ kind: "skip", reason: "auto-review-disabled" });
+  });
+
+  it.each(["opened", "ready_for_review", "reopened"])("with auto-review on, routes %s to an auto review", (action) => {
+    const routed = parseEvent("pull_request", { ...pr(), action }, autoCfg);
     expect(routed).toMatchObject({
       kind: "review",
       trigger: { kind: "auto", owner: "acme", repo: "widgets", prNumber: 7, bypassGate: false },
     });
   });
 
-  it("skips synchronize unless enabled", () => {
-    expect(parseEvent("pull_request", { ...pr(), action: "synchronize" }, cfg)).toMatchObject({
+  it("with auto-review on, skips synchronize unless enabled", () => {
+    expect(parseEvent("pull_request", { ...pr(), action: "synchronize" }, autoCfg)).toMatchObject({
       kind: "skip",
       reason: "unsupported-action",
     });
-    const enabled = { ...cfg, reviewOnSynchronize: true };
+    const enabled = { ...autoCfg, reviewOnSynchronize: true };
     expect(parseEvent("pull_request", { ...pr(), action: "synchronize" }, enabled)).toMatchObject({ kind: "review" });
   });
 
-  it("skips drafts and unrelated actions", () => {
-    expect(parseEvent("pull_request", pr({ draft: true }), cfg)).toMatchObject({ kind: "skip", reason: "draft" });
-    expect(parseEvent("pull_request", { ...pr(), action: "labeled" }, cfg)).toMatchObject({
+  it("with auto-review on, skips drafts and unrelated actions", () => {
+    expect(parseEvent("pull_request", pr({ draft: true }), autoCfg)).toMatchObject({ kind: "skip", reason: "draft" });
+    expect(parseEvent("pull_request", { ...pr(), action: "labeled" }, autoCfg)).toMatchObject({
       kind: "skip",
       reason: "unsupported-action",
     });
   });
 
-  it("accepts pull_request_target the same way", () => {
-    expect(parseEvent("pull_request_target", pr(), cfg)).toMatchObject({ kind: "review" });
+  it("with auto-review on, accepts pull_request_target the same way", () => {
+    expect(parseEvent("pull_request_target", pr(), autoCfg)).toMatchObject({ kind: "review" });
   });
 });
 

@@ -92,12 +92,7 @@ export async function runReview(
       readLines: tools.readLines,
     });
 
-    const body = renderReviewBody(review, placement.fallbacks, {
-      headSha: cloned.headSha,
-      model: cfg.model,
-      effort: cfg.effort,
-      usageFooter: meter.footerLine(),
-    });
+    const body = renderReviewBody(review, placement.fallbacks, { headSha: cloned.headSha });
 
     const placed: PlacedReview = {
       event: mapVerdict(review.verdict, cfg.neverApprove),

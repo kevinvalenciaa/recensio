@@ -22,11 +22,7 @@ export function mapVerdict(verdict: ReviewResult["verdict"], neverApprove: boole
   }
 }
 
-export function renderReviewBody(
-  review: ReviewResult,
-  fallbacks: FallbackFinding[],
-  ctx: { headSha: string; model: string; effort: string; usageFooter: string },
-): string {
+export function renderReviewBody(review: ReviewResult, fallbacks: FallbackFinding[], ctx: { headSha: string }): string {
   const s: string[] = [];
   s.push(`${REVIEW_MARKER}\n<!-- recensio:commit:${ctx.headSha} -->`);
   // Sections mirror the review spec's Phase 5 deliverable, in its order
@@ -93,9 +89,6 @@ export function renderReviewBody(
     );
   }
 
-  s.push(
-    `---\n_Recensio · ${ctx.model} (effort: ${ctx.effort}) · ${ctx.usageFooter} · comment \`@recensio\` to re-review_`,
-  );
   return s.join("\n\n");
 }
 
@@ -195,11 +188,7 @@ function foldCommentsIntoBody(body: string, comments: InlineComment[]): string {
     const range = c.start_line !== undefined ? `${c.start_line}–${c.line}` : `${c.line}`;
     return `**\`${c.path}:${range}\`**\n\n${c.body}`;
   });
-  const section = `### Inline findings (could not be anchored)\n\n${items.join("\n\n---\n\n")}`;
-  // Keep the footer last.
-  const footerIdx = body.lastIndexOf("\n---\n_Recensio");
-  if (footerIdx >= 0) return body.slice(0, footerIdx) + "\n\n" + section + body.slice(footerIdx);
-  return body + "\n\n" + section;
+  return `${body}\n\n### Inline findings (could not be anchored)\n\n${items.join("\n\n---\n\n")}`;
 }
 
 function extractErrorText(err: any): string {

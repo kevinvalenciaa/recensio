@@ -7,6 +7,8 @@ export interface Config {
   model: string;
   effort: Effort;
   minLoc: number;
+  /** Review automatically on PR open/ready/reopen. Off: @recensio comments only. */
+  autoReview: boolean;
   reviewOnSynchronize: boolean;
   neverApprove: boolean;
   maxTurns: number;
@@ -55,6 +57,7 @@ export interface RawConfigInputs {
   model?: string;
   effort?: string;
   minLoc?: string;
+  autoReview?: string;
   reviewOnSynchronize?: string;
   neverApprove?: string;
   maxTurns?: string;
@@ -72,6 +75,7 @@ export function buildConfig(raw: RawConfigInputs): Config {
     model: raw.model?.trim() || DEFAULTS.model,
     effort: parseEffort(raw.effort, DEFAULTS.effort),
     minLoc: parsePositiveInt(raw.minLoc, DEFAULTS.minLoc, "min-loc"),
+    autoReview: parseBool(raw.autoReview, false),
     reviewOnSynchronize: parseBool(raw.reviewOnSynchronize, false),
     neverApprove: parseBool(raw.neverApprove, false),
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS.maxTurns, "max-turns"),

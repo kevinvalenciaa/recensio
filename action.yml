@@ -19,11 +19,15 @@ inputs:
     required: false
     default: "xhigh"
   min-loc:
-    description: "Size-gate threshold in changed LOC (additions + deletions, excluding lockfiles/generated/vendored)"
+    description: "Size-gate threshold in changed LOC (additions + deletions, excluding lockfiles/generated/vendored); applies to auto reviews only"
     required: false
     default: "500"
+  auto-review:
+    description: "Also review automatically on PR opened/ready/reopened events (requires the pull_request trigger in your workflow). Off by default: reviews run only when a collaborator comments @recensio."
+    required: false
+    default: "false"
   review-on-synchronize:
-    description: "Also review on every push to the PR (the synchronize event)"
+    description: "With auto-review on, also review every push to the PR (the synchronize event)"
     required: false
     default: "false"
   never-approve:

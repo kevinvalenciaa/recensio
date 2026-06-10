@@ -5,7 +5,8 @@ Staff-engineer-depth pull-request review, as a GitHub Action. Recensio reads the
 - **Inline comments anchored to the exact lines** each finding is about, with copy-paste-ready ```suggestion blocks where a mechanical fix exists
 - A verdict (`APPROVE` / `APPROVE WITH COMMENTS` / `REQUEST CHANGES` / `BLOCK`), a mergability-confidence grade, and merge-readiness scores
 - Verified findings with per-finding confidence (0–100), an Unconfirmed section, and a discarded-candidates audit trail
-- **`@recensio` / `/recensio` re-reviews**: comment on the PR and it re-reviews, checking whether prior findings were fixed
+
+Reviews run **on demand**: a collaborator comments `@recensio` (or `/recensio`) on a PR. Comment again after pushing fixes and it re-reviews, checking whether prior findings were resolved. (Automatic reviews on PR open are available as an opt-in — see `auto-review`.)
 
 It is powered by the Claude API (default model `claude-opus-4-8`) running an agentic loop with read/grep tools over a clone of the PR head.
 
@@ -29,10 +30,9 @@ That's it. No server, no checkout step (the action shallow-clones the PR head it
 
 | Event | Behavior |
 |---|---|
-| PR opened / reopened / marked ready | Size gate runs. ≥ 500 changed LOC → full review. Below → a `⏭️ SKIPPED` notice (updated in place, never duplicated). |
-| Collaborator comments `@recensio` or `/recensio` | 👀 reaction, then a full review **regardless of size** (explicit human request bypasses the gate). Re-reviews check prior findings and report what was fixed. |
-| Every push (`synchronize`) | Off by default (cost control). Enable with `review-on-synchronize: "true"`. |
-| Draft PR | Skipped silently; summon with `@recensio` if you want a draft reviewed. |
+| Collaborator comments `@recensio` or `/recensio` | 👀 reaction, then a full review. Re-reviews check prior findings and report what was fixed. Works on drafts and PRs of any size. |
+| PR opened / reopened / marked ready | Nothing, by default. Opt in with `auto-review: "true"` + the `pull_request` trigger: then the size gate runs (≥ `min-loc` changed LOC → review; below → a `⏭️ SKIPPED` notice, updated in place). |
+| Every push (`synchronize`) | Nothing, unless `auto-review` and `review-on-synchronize` are both on. |
 | Failure (bad key, API outage…) | A `⚠️ Recensio failed` comment with the reason and a retry hint; the check run fails. |
 
 Only users with **write/maintain/admin** access can summon `@recensio`; bot comments are ignored (no loops).
@@ -45,8 +45,9 @@ Only users with **write/maintain/admin** access can summon `@recensio`; bot comm
 | `github-token` | `${{ github.token }}` | Needs `pull-requests: write`, `issues: write`, `contents: read` |
 | `model` | `claude-opus-4-8` | Any current Claude model id |
 | `effort` | `xhigh` | `low` \| `medium` \| `high` \| `xhigh` \| `max` — depth vs. cost |
-| `min-loc` | `500` | Size-gate threshold (additions+deletions, excluding lockfiles/generated/vendored) |
-| `review-on-synchronize` | `false` | Review every push |
+| `auto-review` | `false` | Also review PR opened/ready/reopened events (add the `pull_request` trigger to your workflow) |
+| `min-loc` | `500` | Size-gate threshold for auto reviews (additions+deletions, excluding lockfiles/generated/vendored) |
+| `review-on-synchronize` | `false` | With `auto-review`: also review every push |
 | `never-approve` | `false` | Post approval verdicts as `COMMENT` |
 | `max-turns` | `40` | Agent turn cap |
 
@@ -58,14 +59,11 @@ By default, GitHub forbids the Actions token from **approving** PRs (Settings �
 
 ## Fork PRs
 
-On `pull_request` events from forks, GitHub hands workflows a **read-only** token, so the review cannot be posted (Recensio fails with a clear message). Options:
-
-1. **Use the comment path** — `@recensio` on the fork PR works as-is (issue_comment runs in the base repo with a write token).
-2. **Switch the trigger to `pull_request_target`** in your workflow. The standard warning about `pull_request_target` is executing untrusted PR code with elevated permissions; Recensio only `git fetch`es and *reads* the PR's files — it never builds, installs, or executes them. The reviewed code does flow into the model's context, so treat the posted review text accordingly.
+The default `@recensio` comment path works for fork PRs as-is (`issue_comment` runs in the base repo with a write token). The caveat only applies to the opt-in `auto-review` mode: on `pull_request` events from forks, GitHub hands workflows a **read-only** token, so the review cannot be posted (Recensio fails with a clear message). For automatic fork reviews, switch that trigger to `pull_request_target` — the standard warning about it is executing untrusted PR code with elevated permissions; Recensio only `git fetch`es and *reads* the PR's files, never builds, installs, or executes them. The reviewed code does flow into the model's context, so treat the posted review text accordingly.
 
 ## Cost & runtime
 
-A deep review of a 500–2000-LOC PR typically runs several minutes and a few dollars of API usage at the default `xhigh` effort (the review footer and the workflow step summary show exact token counts and an estimated cost per run). Levers, in order of impact: `effort` (e.g. `high` or `medium`), `model` (`claude-sonnet-4-6` is ~40% the price), `min-loc`, and leaving `review-on-synchronize` off.
+A deep review of a 500–2000-LOC PR typically runs several minutes and a few dollars of API usage at the default `xhigh` effort (the workflow step summary and run logs show exact token counts and an estimated cost per run; the posted review itself carries no usage footer). Levers, in order of impact: `effort` (e.g. `high` or `medium`), `model` (`claude-sonnet-4-6` is ~40% the price), and keeping reviews on-demand rather than enabling `auto-review`/`review-on-synchronize`.
 
 ## CLI (local runs & testing)
 
@@ -139,10 +137,10 @@ Phase A — dry runs against real PRs (read-only, posts nothing):
 
 Phase B — a scratch repo with the workflow installed:
 
-1. Open a >500-LOC PR with planted bugs (string-concatenated SQL, off-by-one, missing `await`, swallowed error) → inline comments on the planted lines; suggestions apply cleanly; `REQUEST CHANGES`.
-2. Push fixes, comment `@recensio` → 👀 reaction, prior findings reported resolved, no duplicate inline comments.
-3. Tiny PR → skip notice; another tiny push → the notice is **edited**, not duplicated; `@recensio` → full review.
-4. With repo approval setting off, a clean PR → verdict posted as COMMENT with the downgrade note; flip the setting on → real APPROVE.
+1. Open a PR with planted bugs (string-concatenated SQL, off-by-one, missing `await`, swallowed error), comment `@recensio` → 👀 reaction, inline comments on the planted lines; suggestions apply cleanly; `REQUEST CHANGES`.
+2. Push fixes, comment `@recensio` again → prior findings reported resolved, no duplicate inline comments.
+3. With `auto-review: "true"` + the `pull_request` trigger enabled: open a tiny PR → skip notice; another tiny push → the notice is **edited**, not duplicated; `@recensio` → full review (gate bypassed).
+4. With repo approval setting off, `@recensio` on a clean PR → verdict posted as COMMENT with the downgrade note; flip the setting on → real APPROVE.
 5. `@recensio` from a read-only user → ignored (no reaction, no review).
 6. Break the secret → `⚠️ Recensio failed` comment + failed check; fix it, `@recensio` → recovers.
 

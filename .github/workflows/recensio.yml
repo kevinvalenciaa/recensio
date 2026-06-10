@@ -1,15 +1,14 @@
-# Dogfood: Recensio reviews PRs to its own repository, running from the
-# checked-out working tree (uses: ./). Requires the ANTHROPIC_API_KEY secret.
+# Dogfood: Recensio reviews PRs to its own repository on demand — comment
+# @recensio on a PR. Runs from the checked-out working tree (uses: ./).
+# Requires the ANTHROPIC_API_KEY secret.
 name: Recensio
 
 on:
-  pull_request:
-    types: [opened, ready_for_review, reopened]
   issue_comment:
     types: [created]
 
 concurrency:
-  group: recensio-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: recensio-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 permissions:
@@ -19,9 +18,7 @@ permissions:
 
 jobs:
   review:
-    if: >-
-      github.event_name == 'pull_request' ||
-      (github.event.issue.pull_request && contains(github.event.comment.body, 'recensio'))
+    if: github.event.issue.pull_request && contains(github.event.comment.body, 'recensio')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
