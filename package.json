@@ -1,0 +1,32 @@
+{
+  "name": "recensio",
+  "version": "0.1.0",
+  "description": "Staff-engineer-depth PR review agent powered by the Claude API — runs as a GitHub Action",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "node scripts/build.mjs",
+    "lint": "eslint src test"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@anthropic-ai/sdk": "^0.104.1",
+    "@octokit/rest": "^22.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "esbuild": "0.28.0",
+    "eslint": "^10.4.1",
+    "nock": "^14.0.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "^4.1.8"
+  }
+}

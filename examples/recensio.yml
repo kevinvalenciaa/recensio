@@ -1,0 +1,49 @@
+# Recensio — PR review agent
+# Copy this file to .github/workflows/recensio.yml in any repository, then add
+# an ANTHROPIC_API_KEY secret (Settings → Secrets and variables → Actions).
+#
+# Reviews run automatically when a PR opens (≥500 changed LOC), and on demand
+# when a collaborator comments "@recensio" or "/recensio" on any PR.
+
+name: Recensio
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+    # Note: for PRs from forks, the default token is read-only and the review
+    # cannot be posted. If you need automatic reviews on fork PRs, change
+    # `pull_request` to `pull_request_target` — Recensio only reads PR code
+    # (it never executes or builds it), but review the security notes in the
+    # README before doing so. The @recensio comment path below works for fork
+    # PRs either way.
+  issue_comment:
+    types: [created]
+
+# One review at a time per PR; a newer trigger cancels a stale in-flight run.
+concurrency:
+  group: recensio-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # clone the PR head
+  pull-requests: write # post reviews and inline comments
+  issues: write # skip/error notices and the 👀 reaction
+
+jobs:
+  review:
+    # Cheap prefilter; the action itself does the authoritative word-boundary
+    # match, bot filtering, and write-permission check.
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, 'recensio'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: YOUR_GITHUB_USERNAME/recensio@v1 # ← point at your copy of the recensio repo
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # model: claude-opus-4-8
+          # effort: xhigh                # low | medium | high | xhigh | max
+          # min-loc: "500"               # size-gate threshold
+          # review-on-synchronize: "true"  # also review every push
+          # never-approve: "true"        # post approvals as comments
