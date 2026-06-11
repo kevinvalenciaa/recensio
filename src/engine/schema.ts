@@ -18,10 +18,16 @@ export const FindingSchema = z.strictObject({
     .optional()
     .describe("Last line of a multi-line anchor; omit for single-line findings"),
   title: z.string().describe("One-line summary of the issue"),
-  body: z
+  issue: z.string().describe("What is wrong, quoting the offending code fragment. Max 250 chars."),
+  risk: z.string().describe("What happens if this merges. Max 250 chars."),
+  trigger: z.string().describe("The exact input/request/state/sequence that produces the failure. Max 250 chars."),
+  verification_trail: z
+    .string()
+    .describe("file:line evidence you actually traced (entry point → flagged line, mitigations checked). Max 250 chars."),
+  ai_fix_prompt: z
     .string()
     .describe(
-      "Markdown containing **Issue**, **Risk**, **Trigger**, and **Verification trail** — one line each, quoting at most 3 lines of offending code",
+      "Copy-paste prompt for the author's AI coding agent: name file:line + defect, instruct it to FIRST trace the flow and confirm the issue exists before changing code, then implement and verify the fix. Max 400 chars.",
     ),
   suggestion: z
     .string()
@@ -32,7 +38,7 @@ export const FindingSchema = z.strictObject({
 });
 
 export const UnconfirmedSchema = FindingSchema.extend({
-  to_confirm: z.string().describe("The exact check a human should run to settle this"),
+  to_confirm: z.string().describe("The exact check a human should run to settle this. Max 250 chars."),
 });
 
 export const ScoresSchema = z.strictObject({
@@ -51,7 +57,7 @@ export const SubmitReviewSchema = z.strictObject({
   summary: z
     .string()
     .describe(
-      "2-4 sentences only: the PR's intent, whether you would let this merge to production today, and the single most driving factor. No headings, no lists.",
+      "1-2 sentences, hard cap 400 characters: the PR's intent and whether you would let this merge to production today (with the single driving factor). No headings, no lists.",
     ),
   findings: z.array(FindingSchema).describe("Verified findings only (confidence >= 80, severity P0-P2)"),
   unconfirmed: z.array(UnconfirmedSchema).describe("Confidence 50-79 items"),
@@ -87,9 +93,9 @@ export function validateSemantics(review: ReviewResult): { ok: true; review: Rev
     review.scores[key] = clamp(review.scores[key], 0, 100);
   }
 
-  if (review.summary.length > 1600) {
+  if (review.summary.length > 400) {
     errors.push(
-      `summary is ${review.summary.length} chars — compress to 2-4 sentences (intent + would-you-merge-today + driving factor)`,
+      `summary is ${review.summary.length} chars — hard cap is 400. Compress to 1-2 sentences (intent + would-you-merge-today + driving factor)`,
     );
   }
   if (review.pre_merge_checklist.length > 1800) {
@@ -98,12 +104,18 @@ export function validateSemantics(review: ReviewResult): { ok: true; review: Rev
     );
   }
 
-  const checkFinding = (f: Finding, where: string) => {
+  const checkFinding = (f: Finding & { to_confirm?: string }, where: string) => {
     f.confidence = clamp(f.confidence, 0, 100);
-    if (f.body.length > 1600) {
-      errors.push(
-        `${where}.body is ${f.body.length} chars — keep Issue/Risk/Trigger/Verification trail to one line each (max 3 quoted code lines)`,
-      );
+    const capped: Array<[string, string, number]> = [
+      ["issue", f.issue, 250],
+      ["risk", f.risk, 250],
+      ["trigger", f.trigger, 250],
+      ["verification_trail", f.verification_trail, 250],
+      ["ai_fix_prompt", f.ai_fix_prompt, 400],
+      ...(f.to_confirm !== undefined ? ([["to_confirm", f.to_confirm, 250]] as Array<[string, string, number]>) : []),
+    ];
+    for (const [name, value, max] of capped) {
+      if (value.length > max) errors.push(`${where}.${name} is ${value.length} chars — hard cap is ${max}. Compress.`);
     }
     if (!/^F\d+$/.test(f.id)) errors.push(`${where}.id must match F<number>, got "${f.id}"`);
     if (!Number.isInteger(f.line) || f.line < 1) errors.push(`${where}.line must be a positive integer, got ${f.line}`);

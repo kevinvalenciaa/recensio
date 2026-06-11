@@ -10,7 +10,9 @@ import { log } from "../shared/log.js";
 
 export const REVIEW_MARKER = "<!-- recensio:review -->";
 const COMMIT_MARKER_RE = /<!-- recensio:commit:([0-9a-f]{7,40}) -->/;
-const VERDICT_LINE_RE = /Verdict[:*\s]+\**([A-Z_ ]+?)\**\s*(?:\n|·|$)/;
+// Verdict appears emoji-prefixed in both the old H2 heading and the current
+// bold line under the mergability heading.
+const VERDICT_LINE_RE = /(?:✅|💬|🔁|⛔)\s*(APPROVE WITH COMMENTS|APPROVE|REQUEST CHANGES|BLOCK)/;
 const FINDING_MARKER_RE = /<!-- recensio:finding:(F\d+) -->/;
 
 /** GitHub stops listing files at 3000 per PR. */
@@ -104,7 +106,8 @@ export async function fetchPreviousReviewDigest(
       const m = c.body?.match(FINDING_MARKER_RE);
       if (!m) continue;
       const titleLine = c.body.split("\n")[0] ?? "";
-      const sevMatch = titleLine.match(/\[(P\d)\]/);
+      // Matches both the current "🔴 P0 CRITICAL:" headers and legacy "[P0]" ones.
+      const sevMatch = titleLine.match(/\b(P[0-3])\b/);
       findings.push({
         id: m[1]!,
         severity: sevMatch?.[1] ?? "?",

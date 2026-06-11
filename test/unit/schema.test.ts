@@ -82,19 +82,35 @@ describe("submitReviewJsonSchema", () => {
 });
 
 describe("brevity caps", () => {
-  it("bounces an over-long summary back as a validation error", () => {
-    const r = validReview({ summary: "x".repeat(2000) });
+  it("bounces a summary over the 400-char cap back as a validation error", () => {
+    const r = validReview({ summary: "x".repeat(401) });
     const out = validateSemantics(r);
     expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.errors.join("\n")).toMatch(/summary is 2000 chars — compress to 2-4 sentences/);
+    if (!out.ok) expect(out.errors.join("\n")).toMatch(/summary is 401 chars — hard cap is 400/);
+    expect(validateSemantics(validReview({ summary: "x".repeat(400) })).ok).toBe(true);
   });
 
-  it("bounces an over-long finding body", () => {
+  it("bounces over-cap finding subsections (250) and ai_fix_prompt (400)", () => {
     const r = validReview();
-    r.findings[0]!.body = "y".repeat(2000);
+    r.findings[0]!.issue = "y".repeat(251);
+    r.findings[0]!.verification_trail = "y".repeat(300);
+    r.findings[0]!.ai_fix_prompt = "y".repeat(401);
     const out = validateSemantics(r);
     expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.errors.join("\n")).toMatch(/findings\[0\]\.body is 2000 chars/);
+    if (!out.ok) {
+      const text = out.errors.join("\n");
+      expect(text).toMatch(/findings\[0\]\.issue is 251 chars — hard cap is 250/);
+      expect(text).toMatch(/findings\[0\]\.verification_trail is 300 chars/);
+      expect(text).toMatch(/findings\[0\]\.ai_fix_prompt is 401 chars — hard cap is 400/);
+    }
+  });
+
+  it("caps to_confirm on unconfirmed items at 250", () => {
+    const r = validReview();
+    r.unconfirmed = [{ ...r.findings[0]!, id: "F9", to_confirm: "z".repeat(251) }];
+    const out = validateSemantics(r);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.errors.join("\n")).toMatch(/unconfirmed\[0\]\.to_confirm is 251 chars/);
   });
 
   it("accepts compact content", () => {

@@ -38,7 +38,11 @@ function finding(overrides: Partial<Finding>): Finding {
     path: "src/app.ts",
     line: 11,
     title: "test finding",
-    body: "**Issue**: x\n**Risk**: y\n**Trigger**: z\n**Verification trail**: w",
+    issue: "x",
+    risk: "y",
+    trigger: "z",
+    verification_trail: "w",
+    ai_fix_prompt: "In src/app.ts:11, trace the flow to confirm the issue exists, then fix and run tests.",
     ...overrides,
   };
 }
@@ -46,11 +50,23 @@ function finding(overrides: Partial<Finding>): Finding {
 function plan(findings: Finding[], readLines?: (p: string) => string[] | undefined) {
   return planPlacement({
     findings,
+    unconfirmed: [],
     diff: buildRepoDiffModel(FILES),
     owner: "acme",
     repo: "widgets",
     headSha: "abc1234",
     readLines,
+  });
+}
+
+function planUnconfirmed(unconfirmed: Array<Finding & { to_confirm: string }>) {
+  return planPlacement({
+    findings: [],
+    unconfirmed,
+    diff: buildRepoDiffModel(FILES),
+    owner: "acme",
+    repo: "widgets",
+    headSha: "abc1234",
   });
 }
 
@@ -60,8 +76,40 @@ describe("planPlacement", () => {
     expect(fallbacks).toHaveLength(0);
     expect(comments[0]).toMatchObject({ path: "src/app.ts", line: 11, side: "RIGHT" });
     expect(comments[0]!.start_line).toBeUndefined();
-    expect(comments[0]!.body).toContain("[P1][INTRODUCED]");
+    expect(comments[0]!.body).toContain("**🟠 P1 HIGH: test finding** · INTRODUCED · confidence 90/100 · `F1`");
+    expect(comments[0]!.body).toContain("**Issue**: x\n**Risk**: y\n**Trigger**: z\n**Verification trail**: w");
+    expect(comments[0]!.body).toContain("**AI Fix Prompt:**\n\n```\nIn src/app.ts:11, trace the flow to confirm the issue exists, then fix and run tests.\n```");
     expect(comments[0]!.body).toContain("<!-- recensio:finding:F1 -->");
+  });
+
+  it("uses the severity emoji badge per level", () => {
+    const { comments } = plan([
+      finding({ id: "F1", severity: "P0", line: 11 }),
+      finding({ id: "F2", severity: "P2", line: 12 }),
+    ]);
+    expect(comments[0]!.body).toContain("🔴 P0 CRITICAL:");
+    expect(comments[1]!.body).toContain("🟡 P2 MEDIUM:");
+  });
+
+  it("anchors unconfirmed findings inline with the Unconfirmed label, To confirm line, and no apply-able suggestion", () => {
+    const { comments, unconfirmedFallbacks } = planUnconfirmed([
+      { ...finding({ line: 11, suggestion: "const fixed = 1;" }), to_confirm: "run the stress test" },
+    ]);
+    expect(unconfirmedFallbacks).toHaveLength(0);
+    expect(comments[0]).toMatchObject({ path: "src/app.ts", line: 11, side: "RIGHT" });
+    expect(comments[0]!.body).toContain("**⚠️ Unconfirmed — 🟠 P1 HIGH: test finding**");
+    expect(comments[0]!.body).toContain("**To confirm:** run the stress test");
+    expect(comments[0]!.body).not.toContain("```suggestion");
+    expect(comments[0]!.body).toContain("Proposed fix:");
+  });
+
+  it("falls back unconfirmed findings that are not anchorable, keeping To confirm", () => {
+    const { comments, unconfirmedFallbacks } = planUnconfirmed([
+      { ...finding({ line: 500 }), to_confirm: "check prod logs" },
+    ]);
+    expect(comments).toHaveLength(0);
+    expect(unconfirmedFallbacks[0]!.renderedBody).toContain("⚠️ Unconfirmed —");
+    expect(unconfirmedFallbacks[0]!.renderedBody).toContain("**To confirm:** check prod logs");
   });
 
   it("anchors on context (unchanged) lines shown in the diff", () => {

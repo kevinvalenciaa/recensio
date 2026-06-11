@@ -72,7 +72,7 @@ describe("mapVerdict", () => {
 });
 
 describe("renderReviewBody", () => {
-  it("renders verdict, scores, sections, markers, and footer", () => {
+  it("renders mergability heading, verdict line, scores, sections, markers, and stats", () => {
     const review = validReview({
       unconfirmed: [
         {
@@ -83,7 +83,11 @@ describe("renderReviewBody", () => {
           path: "src/x.ts",
           line: 3,
           title: "maybe racy",
-          body: "**Issue**: ...",
+          issue: "shared counter without lock",
+          risk: "lost updates",
+          trigger: "two concurrent calls",
+          verification_trail: "src/x.ts:3 increment; no mutex found",
+          ai_fix_prompt: "In src/x.ts:3, trace concurrent callers to confirm the race exists; fix only if confirmed.",
           to_confirm: "run the stress test",
         },
       ],
@@ -91,38 +95,55 @@ describe("renderReviewBody", () => {
     });
     const body = renderReviewBody(
       review,
-      [{ findingId: "F2", reason: "line-not-in-diff", renderedBody: "**[P2][INTRODUCED] body finding**" }],
-      { headSha: "a".repeat(40) },
+      {
+        verified: [{ findingId: "F2", reason: "line-not-in-diff", renderedBody: "**🟡 P2 MEDIUM: body finding**" }],
+        unconfirmed: [
+          {
+            findingId: "F9",
+            reason: "line-not-in-diff",
+            renderedBody: "**⚠️ Unconfirmed — 🟠 P1 HIGH: maybe racy**\n\n**To confirm:** run the stress test",
+          },
+        ],
+      },
+      { headSha: "a".repeat(40), filesReviewed: 26, inlineCommentCount: 5 },
     );
     expect(body).toContain("<!-- recensio:review -->");
     expect(body).toContain(`<!-- recensio:commit:${"a".repeat(40)} -->`);
-    expect(body).toContain("## 🔁 REQUEST CHANGES");
-    expect(body).toContain("**Mergability Confidence: 2/5**");
-    // summary renders as prose directly under the verdict, per the spec's section 1
+    // mergability is the heading; the verdict (✅ for approve-with-comments
+    // family, 🔁 here) is the bold line under it
+    expect(body).toContain("## Mergability Confidence: 2/5");
+    expect(body).toContain("**🔁 REQUEST CHANGES**");
     expect(body).toContain("Adds a users endpoint; SQL injection found.");
     expect(body).not.toContain("### Summary");
     expect(body).toContain("| **OVERALL** | 100% | **60/100** |");
-    expect(body).toContain("**✅ Verified findings:** 1 below (not anchorable in the diff)");
     expect(body).toContain("### Findings outside the visible diff");
     expect(body).toContain("### ⚠️ Unconfirmed (confidence 50–79)");
     expect(body).toContain("**To confirm:** run the stress test");
     expect(body).toContain("### Required tests");
     expect(body).toContain("### Pre-merge checklist");
-    expect(body).toContain("- [ ] Every new input surface is validated — name param unvalidated");
     expect(body).toContain("### Top actions");
     expect(body).toContain("### 🟢 Nits (batched, non-blocking)");
     expect(body).toContain("Discarded candidates (1)");
-    // no usage/model footer on the posted review
+    // stats block at the bottom: validReview has 1 P0 finding + the P1 unconfirmed
+    expect(body.trim()).toMatch(/26 files reviewed, 5 comments\n\nSeverity breakdown: Critical \(P0\): 1, High \(P1\): 1$/);
     expect(body).not.toContain("_Recensio ·");
-    expect(body).not.toContain("re-review");
   });
 
-  it("omits empty sections", () => {
-    const review = validReview({ unconfirmed: [], discarded: [], required_tests: [], top_actions: [], nits_markdown: "" });
-    const body = renderReviewBody(review, [], { headSha: "x" });
+  it("uses ✅ for APPROVE WITH COMMENTS", () => {
+    const review = validReview({ verdict: "APPROVE_WITH_COMMENTS" });
+    const body = renderReviewBody(review, { verified: [], unconfirmed: [] }, { headSha: "x", filesReviewed: 3, inlineCommentCount: 1 });
+    expect(body).toContain("**✅ APPROVE WITH COMMENTS**");
+    expect(body).not.toContain("💬");
+  });
+
+  it("omits empty sections and reports a clean stats block", () => {
+    const review = validReview({ findings: [], unconfirmed: [], discarded: [], required_tests: [], top_actions: [], nits_markdown: "" });
+    const body = renderReviewBody(review, { verified: [], unconfirmed: [] }, { headSha: "x", filesReviewed: 1, inlineCommentCount: 0 });
     expect(body).not.toContain("Unconfirmed");
     expect(body).not.toContain("Nits");
     expect(body).not.toContain("Discarded");
+    expect(body).toContain("1 file reviewed, 0 comments");
+    expect(body).toContain("No issues found.");
   });
 });
 

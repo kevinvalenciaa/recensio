@@ -85,6 +85,7 @@ export async function runReview(
 
     const placement = planPlacement({
       findings: review.findings,
+      unconfirmed: review.unconfirmed,
       diff: buildRepoDiffModel(ctx.files),
       owner,
       repo,
@@ -92,14 +93,22 @@ export async function runReview(
       readLines: tools.readLines,
     });
 
-    const body = renderReviewBody(review, placement.fallbacks, { headSha: cloned.headSha });
+    const body = renderReviewBody(
+      review,
+      { verified: placement.fallbacks, unconfirmed: placement.unconfirmedFallbacks },
+      {
+        headSha: cloned.headSha,
+        filesReviewed: ctx.files.length,
+        inlineCommentCount: placement.comments.length,
+      },
+    );
 
     const placed: PlacedReview = {
       event: mapVerdict(review.verdict, cfg.neverApprove),
       verdict: review.verdict,
       body,
       comments: placement.comments,
-      fallbacks: placement.fallbacks,
+      fallbacks: [...placement.fallbacks, ...placement.unconfirmedFallbacks],
     };
 
     log.info(

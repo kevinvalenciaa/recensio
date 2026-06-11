@@ -1,12 +1,12 @@
 import type { Octokit } from "./client.js";
-import type { ReviewResult, UnconfirmedFinding } from "../engine/schema.js";
+import type { ReviewResult } from "../engine/schema.js";
 import type { FallbackFinding, InlineComment, PlacedReview, PrContext, ReviewEvent } from "../shared/types.js";
 import { log } from "../shared/log.js";
 import { REVIEW_MARKER } from "./pr.js";
 
 const VERDICT_LABELS: Record<ReviewResult["verdict"], string> = {
   APPROVE: "✅ APPROVE",
-  APPROVE_WITH_COMMENTS: "💬 APPROVE WITH COMMENTS",
+  APPROVE_WITH_COMMENTS: "✅ APPROVE WITH COMMENTS",
   REQUEST_CHANGES: "🔁 REQUEST CHANGES",
   BLOCK: "⛔ BLOCK",
 };
@@ -22,12 +22,26 @@ export function mapVerdict(verdict: ReviewResult["verdict"], neverApprove: boole
   }
 }
 
-export function renderReviewBody(review: ReviewResult, fallbacks: FallbackFinding[], ctx: { headSha: string }): string {
+export interface BodyContext {
+  headSha: string;
+  /** Total files in the PR (the "files reviewed" stat). */
+  filesReviewed: number;
+  /** Inline review comments being posted alongside this body. */
+  inlineCommentCount: number;
+}
+
+export function renderReviewBody(
+  review: ReviewResult,
+  fallbacks: { verified: FallbackFinding[]; unconfirmed: FallbackFinding[] },
+  ctx: BodyContext,
+): string {
   const s: string[] = [];
   s.push(`${REVIEW_MARKER}\n<!-- recensio:commit:${ctx.headSha} -->`);
   // Sections mirror the review spec's Phase 5 deliverable, in its order
   // (discarded renders last because the spec calls it an appendix).
-  s.push(`## ${VERDICT_LABELS[review.verdict]}\n\n**Mergability Confidence: ${review.mergability_confidence}/5**\n\n${review.summary.trim()}`);
+  s.push(
+    `## Mergability Confidence: ${review.mergability_confidence}/5\n\n**${VERDICT_LABELS[review.verdict]}**\n\n${review.summary.trim()}`,
+  );
 
   s.push(
     [
@@ -42,27 +56,21 @@ export function renderReviewBody(review: ReviewResult, fallbacks: FallbackFindin
     ].join("\n"),
   );
 
-  const inlineCount = review.findings.length - fallbacks.length;
-  if (review.findings.length > 0) {
-    const parts = [];
-    if (inlineCount > 0) parts.push(`${inlineCount} posted inline on the changed lines`);
-    if (fallbacks.length > 0) parts.push(`${fallbacks.length} below (not anchorable in the diff)`);
-    s.push(`**✅ Verified findings:** ${parts.join(" · ")}`);
+  const reasons: Record<FallbackFinding["reason"], string> = {
+    "file-not-in-pr": "file not changed in this PR",
+    "no-text-diff": "no text diff for this file",
+    "line-not-in-diff": "line not visible in the diff",
+    "range-not-anchorable": "range not anchorable in the diff",
+  };
+  const renderFallbacks = (items: FallbackFinding[]) =>
+    items.map((f) => `${f.renderedBody}\n\n_(shown here: ${reasons[f.reason]})_`).join("\n\n---\n\n");
+
+  if (fallbacks.verified.length > 0) {
+    s.push(`### Findings outside the visible diff\n\n${renderFallbacks(fallbacks.verified)}`);
   }
 
-  if (fallbacks.length > 0) {
-    const reasons: Record<FallbackFinding["reason"], string> = {
-      "file-not-in-pr": "file not changed in this PR",
-      "no-text-diff": "no text diff for this file",
-      "line-not-in-diff": "line not visible in the diff",
-      "range-not-anchorable": "range not anchorable in the diff",
-    };
-    const items = fallbacks.map((f) => `${f.renderedBody}\n\n_(shown here: ${reasons[f.reason]})_`);
-    s.push(`### Findings outside the visible diff\n\n${items.join("\n\n---\n\n")}`);
-  }
-
-  if (review.unconfirmed.length > 0) {
-    s.push(`### ⚠️ Unconfirmed (confidence 50–79)\n\n${review.unconfirmed.map(renderUnconfirmed).join("\n\n---\n\n")}`);
+  if (fallbacks.unconfirmed.length > 0) {
+    s.push(`### ⚠️ Unconfirmed (confidence 50–79)\n\n${renderFallbacks(fallbacks.unconfirmed)}`);
   }
 
   if (review.required_tests.length > 0) {
@@ -89,17 +97,22 @@ export function renderReviewBody(review: ReviewResult, fallbacks: FallbackFindin
     );
   }
 
+  s.push(`---\n${statsBlock(review, ctx)}`);
+
   return s.join("\n\n");
 }
 
-function renderUnconfirmed(f: UnconfirmedFinding): string {
-  return [
-    `**[${f.severity}][${f.provenance}] ${f.title}** · \`${f.id}\` · confidence ${f.confidence}/100`,
-    `\`${f.path}:${f.line}${f.end_line ? `–${f.end_line}` : ""}\``,
-    f.body.trim(),
-    `**To confirm:** ${f.to_confirm}`,
-    `<!-- recensio:finding:${f.id} -->`,
-  ].join("\n\n");
+function statsBlock(review: ReviewResult, ctx: BodyContext): string {
+  const counts = { P0: 0, P1: 0, P2: 0 };
+  for (const f of [...review.findings, ...review.unconfirmed]) counts[f.severity] += 1;
+  const parts: string[] = [];
+  if (counts.P0 > 0) parts.push(`Critical (P0): ${counts.P0}`);
+  if (counts.P1 > 0) parts.push(`High (P1): ${counts.P1}`);
+  if (counts.P2 > 0) parts.push(`Medium (P2): ${counts.P2}`);
+  const commentsWord = ctx.inlineCommentCount === 1 ? "comment" : "comments";
+  const filesWord = ctx.filesReviewed === 1 ? "file" : "files";
+  const head = `${ctx.filesReviewed} ${filesWord} reviewed, ${ctx.inlineCommentCount} ${commentsWord}`;
+  return parts.length > 0 ? `${head}\n\nSeverity breakdown: ${parts.join(", ")}` : `${head}\n\nNo issues found.`;
 }
 
 export interface PostResult {

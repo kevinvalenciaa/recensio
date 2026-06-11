@@ -1,9 +1,10 @@
-import type { Finding } from "../engine/schema.js";
+import type { Finding, UnconfirmedFinding } from "../engine/schema.js";
 import type { FallbackFinding, InlineComment } from "../shared/types.js";
 import { hunkContaining, normalizePath, type RepoDiffModel } from "./diff.js";
 
 export interface PlacementInput {
   findings: Finding[];
+  unconfirmed: UnconfirmedFinding[];
   diff: RepoDiffModel;
   owner: string;
   repo: string;
@@ -18,99 +19,122 @@ export interface PlacementInput {
 
 export interface PlacementResult {
   comments: InlineComment[];
+  /** Verified findings that could not be anchored — rendered in the body. */
   fallbacks: FallbackFinding[];
+  /** Unconfirmed findings that could not be anchored — rendered in the body. */
+  unconfirmedFallbacks: FallbackFinding[];
 }
 
 const SNAP_DISTANCE = 3;
+
+export const SEVERITY_BADGE: Record<Finding["severity"], string> = {
+  P0: "🔴 P0 CRITICAL",
+  P1: "🟠 P1 HIGH",
+  P2: "🟡 P2 MEDIUM",
+};
 
 /**
  * Decides, deterministically, where each finding can legally attach on
  * GitHub. The model's line numbers are head-revision truth, but GitHub only
  * accepts inline comments on lines visible in the diff — everything else is
  * demoted to the review body rather than risking a 422 that would sink the
- * whole review.
+ * whole review. Verified and unconfirmed findings both anchor inline;
+ * unconfirmed ones are labeled as such and never carry apply-able suggestions.
  */
 export function planPlacement(input: PlacementInput): PlacementResult {
-  const comments: InlineComment[] = [];
-  const fallbacks: FallbackFinding[] = [];
-
+  const result: PlacementResult = { comments: [], fallbacks: [], unconfirmedFallbacks: [] };
   for (const finding of input.findings) {
-    const path = normalizePath(finding.path);
-    const model = input.diff.get(path);
-    if (!model) {
-      fallbacks.push(fallback(finding, path, "file-not-in-pr", input));
-      continue;
-    }
-    if (!model.hasPatch) {
-      fallbacks.push(fallback(finding, path, "no-text-diff", input));
-      continue;
-    }
+    placeOne(finding, "verified", input, result.comments, result.fallbacks);
+  }
+  for (const finding of input.unconfirmed) {
+    placeOne(finding, "unconfirmed", input, result.comments, result.unconfirmedFallbacks);
+  }
+  return result;
+}
 
-    const start = finding.line;
-    const end = finding.end_line ?? finding.line;
-
-    if (end > start) {
-      const allVisible = rangeVisible(model.right, start, end);
-      if (allVisible && hunkContaining(model, start, end)) {
-        comments.push({
-          path,
-          start_line: start,
-          start_side: "RIGHT",
-          line: end,
-          side: "RIGHT",
-          body: renderCommentBody(finding, { suggestion: gateSuggestion(finding, path, start, end, input) }),
-        });
-        continue;
-      }
-      // Shrink: anchor on the last line if that one is visible. The
-      // suggestion no longer replaces exactly the anchored lines, so drop it.
-      if (model.right.has(end)) {
-        comments.push({
-          path,
-          line: end,
-          side: "RIGHT",
-          body: renderCommentBody(finding, {
-            suggestion: undefined,
-            note: `_(refers to lines ${start}–${end}; anchored to line ${end})_`,
-          }),
-        });
-        continue;
-      }
-      fallbacks.push(fallback(finding, path, "range-not-anchorable", input));
-      continue;
-    }
-
-    // Single line.
-    if (model.right.has(start)) {
-      comments.push({
-        path,
-        line: start,
-        side: "RIGHT",
-        body: renderCommentBody(finding, { suggestion: gateSuggestion(finding, path, start, start, input) }),
-      });
-      continue;
-    }
-    // Snap to a nearby visible line only when there is no suggestion — a
-    // suggestion applied to the wrong line is worse than a body finding.
-    if (finding.suggestion === undefined) {
-      const snapped = nearestVisible(model.right, start);
-      if (snapped !== undefined) {
-        comments.push({
-          path,
-          line: snapped,
-          side: "RIGHT",
-          body: renderCommentBody(finding, {
-            suggestion: undefined,
-            note: `_(reported at line ${start}; anchored to nearest diff line ${snapped})_`,
-          }),
-        });
-        continue;
-      }
-    }
-    fallbacks.push(fallback(finding, path, "line-not-in-diff", input));
+function placeOne(
+  finding: Finding & { to_confirm?: string },
+  kind: "verified" | "unconfirmed",
+  input: PlacementInput,
+  comments: InlineComment[],
+  fallbacks: FallbackFinding[],
+): void {
+  const path = normalizePath(finding.path);
+  const model = input.diff.get(path);
+  if (!model) {
+    fallbacks.push(fallback(finding, kind, path, "file-not-in-pr", input));
+    return;
+  }
+  if (!model.hasPatch) {
+    fallbacks.push(fallback(finding, kind, path, "no-text-diff", input));
+    return;
   }
 
-  return { comments, fallbacks };
+  const start = finding.line;
+  const end = finding.end_line ?? finding.line;
+  // Apply-able suggestions are reserved for verified findings; an unconfirmed
+  // fix renders as a plain proposed-fix block instead.
+  const applyable = kind === "verified" ? finding.suggestion : undefined;
+
+  if (end > start) {
+    const allVisible = rangeVisible(model.right, start, end);
+    if (allVisible && hunkContaining(model, start, end)) {
+      comments.push({
+        path,
+        start_line: start,
+        start_side: "RIGHT",
+        line: end,
+        side: "RIGHT",
+        body: renderCommentBody(finding, kind, { suggestion: gateSuggestion(applyable, path, start, end, input) }),
+      });
+      return;
+    }
+    // Shrink: anchor on the last line if that one is visible. The suggestion
+    // no longer replaces exactly the anchored lines, so drop it.
+    if (model.right.has(end)) {
+      comments.push({
+        path,
+        line: end,
+        side: "RIGHT",
+        body: renderCommentBody(finding, kind, {
+          suggestion: undefined,
+          note: `_(refers to lines ${start}–${end}; anchored to line ${end})_`,
+        }),
+      });
+      return;
+    }
+    fallbacks.push(fallback(finding, kind, path, "range-not-anchorable", input));
+    return;
+  }
+
+  // Single line.
+  if (model.right.has(start)) {
+    comments.push({
+      path,
+      line: start,
+      side: "RIGHT",
+      body: renderCommentBody(finding, kind, { suggestion: gateSuggestion(applyable, path, start, start, input) }),
+    });
+    return;
+  }
+  // Snap to a nearby visible line only when no apply-able suggestion rides
+  // along — a suggestion applied to the wrong line is worse than a body finding.
+  if (applyable === undefined) {
+    const snapped = nearestVisible(model.right, start);
+    if (snapped !== undefined) {
+      comments.push({
+        path,
+        line: snapped,
+        side: "RIGHT",
+        body: renderCommentBody(finding, kind, {
+          suggestion: undefined,
+          note: `_(reported at line ${start}; anchored to nearest diff line ${snapped})_`,
+        }),
+      });
+      return;
+    }
+  }
+  fallbacks.push(fallback(finding, kind, path, "line-not-in-diff", input));
 }
 
 function rangeVisible(right: Map<number, unknown>, start: number, end: number): boolean {
@@ -131,54 +155,77 @@ function nearestVisible(right: Map<number, unknown>, line: number): number | und
  * lines. Drops it when it is a byte-for-byte no-op against the head revision.
  */
 function gateSuggestion(
-  finding: Finding,
+  suggestion: string | undefined,
   path: string,
   start: number,
   end: number,
   input: PlacementInput,
 ): string | undefined {
-  const suggestion = finding.suggestion;
   if (suggestion === undefined) return undefined;
   const lines = input.readLines?.(path);
   if (lines) {
     const current = lines.slice(start - 1, end).join("\n");
-    const proposed = suggestion.replace(/\n$/, "");
-    if (current === proposed) return undefined;
+    if (current === suggestion.replace(/\n$/, "")) return undefined;
   }
   return suggestion;
 }
 
+function headerLine(finding: Finding, kind: "verified" | "unconfirmed"): string {
+  const badge = SEVERITY_BADGE[finding.severity];
+  const prefix = kind === "unconfirmed" ? "⚠️ Unconfirmed — " : "";
+  return `**${prefix}${badge}: ${finding.title}** · ${finding.provenance} · confidence ${finding.confidence}/100 · \`${finding.id}\``;
+}
+
+function fieldLines(finding: Finding): string {
+  return [
+    `**Issue**: ${finding.issue.trim()}`,
+    `**Risk**: ${finding.risk.trim()}`,
+    `**Trigger**: ${finding.trigger.trim()}`,
+    `**Verification trail**: ${finding.verification_trail.trim()}`,
+  ].join("\n");
+}
+
+function aiFixPromptBlock(finding: Finding): string {
+  return `**AI Fix Prompt:**\n\n\`\`\`\n${finding.ai_fix_prompt.trim()}\n\`\`\``;
+}
+
 export function renderCommentBody(
-  finding: Finding,
-  opts: { suggestion: string | undefined; note?: string } = { suggestion: finding.suggestion },
+  finding: Finding & { to_confirm?: string },
+  kind: "verified" | "unconfirmed",
+  opts: { suggestion: string | undefined; note?: string },
 ): string {
-  const parts = [
-    `**[${finding.severity}][${finding.provenance}] ${finding.title}** · \`${finding.id}\` · confidence ${finding.confidence}/100`,
-  ];
+  const parts = [headerLine(finding, kind)];
   if (opts.note) parts.push(opts.note);
-  parts.push(finding.body.trim());
+  parts.push(fieldLines(finding));
   if (opts.suggestion !== undefined) {
     parts.push("```suggestion\n" + opts.suggestion.replace(/\n$/, "") + "\n```");
+  } else if (kind === "unconfirmed" && finding.suggestion !== undefined) {
+    parts.push(`Proposed fix:\n\n\`\`\`\n${finding.suggestion.replace(/\n$/, "")}\n\`\`\``);
   }
+  if (kind === "unconfirmed" && finding.to_confirm) {
+    parts.push(`**To confirm:** ${finding.to_confirm}`);
+  }
+  parts.push(aiFixPromptBlock(finding));
   parts.push(`<!-- recensio:finding:${finding.id} -->`);
   return parts.join("\n\n");
 }
 
 function fallback(
-  finding: Finding,
+  finding: Finding & { to_confirm?: string },
+  kind: "verified" | "unconfirmed",
   path: string,
   reason: FallbackFinding["reason"],
   input: PlacementInput,
 ): FallbackFinding {
   const lineRef = finding.end_line ? `L${finding.line}-L${finding.end_line}` : `L${finding.line}`;
   const permalink = `https://github.com/${input.owner}/${input.repo}/blob/${input.headSha}/${path}#${lineRef}`;
-  const heading = `**[${finding.severity}][${finding.provenance}] ${finding.title}** · \`${finding.id}\` · confidence ${finding.confidence}/100`;
   const location = `[\`${path}:${finding.line}${finding.end_line ? `–${finding.end_line}` : ""}\`](${permalink})`;
   const suggestionBlock =
     finding.suggestion !== undefined ? `\n\nProposed fix:\n\n\`\`\`\n${finding.suggestion.replace(/\n$/, "")}\n\`\`\`` : "";
+  const toConfirm = kind === "unconfirmed" && finding.to_confirm ? `\n\n**To confirm:** ${finding.to_confirm}` : "";
   return {
     findingId: finding.id,
     reason,
-    renderedBody: `${heading}\n\n${location}\n\n${finding.body.trim()}${suggestionBlock}\n\n<!-- recensio:finding:${finding.id} -->`,
+    renderedBody: `${headerLine(finding, kind)}\n\n${location}\n\n${fieldLines(finding)}${suggestionBlock}${toConfirm}\n\n${aiFixPromptBlock(finding)}\n\n<!-- recensio:finding:${finding.id} -->`,
   };
 }
