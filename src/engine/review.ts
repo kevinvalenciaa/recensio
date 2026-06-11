@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Octokit } from "../github/client.js";
-import { clonePrHead } from "../github/clone.js";
+import { clonePrHead, isAncestor } from "../github/clone.js";
 import { buildRepoDiffModel } from "../github/diff.js";
 import { planPlacement } from "../github/placement.js";
 import { mapVerdict, postReview, renderReviewBody, upsertMarkerComment } from "../github/post.js";
@@ -55,7 +55,14 @@ export async function runReview(
     return { kind: "skipped-gate", gate };
   }
 
-  const cloned = await (deps.clone ?? clonePrHead)(owner, repo, prNumber, cfg.githubToken, deps.serverUrl);
+  const cloned = await (deps.clone ?? clonePrHead)(
+    owner,
+    repo,
+    prNumber,
+    cfg.githubToken,
+    deps.serverUrl,
+    ctx.meta.baseSha,
+  );
   try {
     // The cloned SHA is authoritative; on a force-push race, re-sync the file
     // list so diff anchors and commit_id match the tree the agent reads.
@@ -90,9 +97,21 @@ export async function runReview(
       if (ctx.dismissedFindings.length > 0) {
         log.info(`prior feedback: ${ctx.dismissedFindings.length} dismissed finding(s) — will not re-raise`);
       }
+      // Incremental re-review: if the previously reviewed commit is an ancestor
+      // of the new head, point the agent at just the delta.
+      const lastSha = ctx.previousReview.reviewedSha;
+      if (lastSha && cloned.historyAvailable && (await isAncestor(cloned.dir, lastSha))) {
+        ctx.incrementalSinceSha = lastSha;
+        log.info(`incremental re-review: focusing on ${lastSha.slice(0, 10)}..HEAD`);
+      }
     }
 
-    const tools = makeTools(cloned.dir);
+    ctx.historyAvailable = cloned.historyAvailable;
+
+    const tools = makeTools(cloned.dir, {
+      gitConfigArgs: cloned.gitConfigArgs,
+      historyAvailable: cloned.historyAvailable,
+    });
     const meter = new UsageMeter(cfg.model);
     const runTurn =
       deps.turnRunner ??

@@ -8,6 +8,8 @@ import { makeTools, toolDefinitions, type RepoTools } from "../../src/engine/too
 let repoDir: string;
 let outside: string;
 let tools: RepoTools;
+let gitTools: RepoTools;
+let firstSha: string;
 
 beforeAll(() => {
   repoDir = mkdtempSync(path.join(tmpdir(), "recensio-tools-"));
@@ -37,8 +39,15 @@ beforeAll(() => {
   git("init", "-q");
   git("add", "-A");
   git("commit", "-qm", "fixture");
+  firstSha = git("rev-parse", "HEAD").toString().trim();
+  // Second commit (new file) so log/diff_range have a range to work with;
+  // leaves the files the other tests assert on untouched.
+  writeFileSync(path.join(repoDir, "src", "added.ts"), "export const added = 42;\n");
+  git("add", "-A");
+  git("commit", "-qm", "second change");
 
   tools = makeTools(repoDir);
+  gitTools = makeTools(repoDir, { historyAvailable: true });
 });
 
 afterAll(() => {
@@ -55,6 +64,19 @@ describe("toolDefinitions", () => {
     const defs = toolDefinitions();
     expect(defs.map((d) => d.name)).toEqual(["read_file", "list_dir", "grep", "submit_review"]);
     expect(defs.every((d) => d.strict)).toBe(true);
+  });
+
+  it("inserts git tools between grep and submit_review when history is available", () => {
+    const defs = toolDefinitions(true);
+    expect(defs.map((d) => d.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "grep",
+      "git_log",
+      "git_blame",
+      "git_diff_range",
+      "submit_review",
+    ]);
   });
 });
 
@@ -154,5 +176,43 @@ describe("readLines", () => {
     expect(lines?.[0]).toBe("export const main = () => 'hello recensio';");
     expect(tools.readLines("nope.ts")).toBeUndefined();
     expect(tools.readLines("binary.dat")).toBeUndefined();
+  });
+});
+
+describe("git tools", () => {
+  it("git_log lists commits, honoring a range", async () => {
+    const all = await gitTools.execute("git_log", {});
+    expect(all.isError).toBe(false);
+    expect(all.content).toContain("second change");
+    expect(all.content).toContain("fixture");
+
+    const ranged = await gitTools.execute("git_log", { range: `${firstSha}..HEAD` });
+    expect(ranged.content).toContain("second change");
+    expect(ranged.content).not.toContain("fixture");
+  });
+
+  it("git_blame attributes lines to commits", async () => {
+    const r = await gitTools.execute("git_blame", { path: "src/index.ts", start_line: 1, end_line: 1 });
+    expect(r.isError).toBe(false);
+    expect(r.content).toContain("hello recensio");
+  });
+
+  it("git_diff_range shows changes between commits", async () => {
+    const r = await gitTools.execute("git_diff_range", { range: `${firstSha}..HEAD` });
+    expect(r.isError).toBe(false);
+    expect(r.content).toContain("added.ts");
+    expect(r.content).toContain("+export const added = 42;");
+  });
+
+  it("rejects option-injection in ranges and paths", async () => {
+    expect((await gitTools.execute("git_diff_range", { range: "--output=/tmp/x" })).isError).toBe(true);
+    expect((await gitTools.execute("git_log", { path: "--all" })).isError).toBe(true);
+    expect((await gitTools.execute("git_blame", { path: "-L/etc/passwd" })).isError).toBe(true);
+  });
+
+  it("git tools are unavailable when history was not fetched", async () => {
+    const r = await tools.execute("git_log", {});
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("unavailable");
   });
 });

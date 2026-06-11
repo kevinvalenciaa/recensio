@@ -116,6 +116,9 @@ ${ctx.prTemplate.content}
     const findingLines = prev.findings.map(
       (f) => `- ${f.id} [${f.severity}] ${f.path}${f.line ? `:${f.line}` : ""} — ${f.title}`,
     );
+    const incrementalNote = ctx.incrementalSinceSha
+      ? `\nThe previously reviewed commit ${ctx.incrementalSinceSha} is an ancestor of the current head — use \`git_diff_range\` with \`${ctx.incrementalSinceSha}..HEAD\` to focus on exactly what changed since then.`
+      : "";
     sections.push(
       `<previous_review>
 You previously reviewed this PR${prev.reviewedSha ? ` at commit ${prev.reviewedSha}` : ""}${prev.verdict ? ` with verdict ${prev.verdict}` : ""}.
@@ -123,7 +126,7 @@ Prior findings:
 ${findingLines.join("\n") || "(none recorded)"}
 
 Prior summary excerpt:
-${truncate(prev.summaryExcerpt, PREV_SUMMARY_MAX)}
+${truncate(prev.summaryExcerpt, PREV_SUMMARY_MAX)}${incrementalNote}
 </previous_review>`,
     );
   }

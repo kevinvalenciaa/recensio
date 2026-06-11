@@ -60,7 +60,14 @@ function fakeClone(sha = HEAD_SHA) {
   const lines = Array.from({ length: 200 }, (_, i) => `// filler ${i + 1}`);
   lines[141] = " const q = `SELECT * FROM users WHERE name = '${name}'`;";
   writeFileSync(path.join(dir, "src", "api", "users.ts"), lines.join("\n"));
-  return async () => ({ dir, headSha: sha, cleanup: async () => {} });
+  return async () => ({
+    dir,
+    headSha: sha,
+    baseSha: "b".repeat(40),
+    historyAvailable: false,
+    gitConfigArgs: [],
+    cleanup: async () => {},
+  });
 }
 
 function submittingRunner(review = validReview()): { runTurn: TurnRunner; requests: Array<Record<string, unknown>> } {

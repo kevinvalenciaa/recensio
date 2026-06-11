@@ -35,20 +35,43 @@ const GrepInput = z.strictObject({
   context: z.number().optional().describe("Lines of context around each match (max 5)"),
 });
 
+const GitLogInput = z.strictObject({
+  range: z.string().optional().describe('Commit range, e.g. "<baseSha>..HEAD" (the PR commits). Omit for recent history.'),
+  path: z.string().optional().describe("Restrict to a file or directory"),
+  max: z.number().optional().describe("Max commits to return (default 30, cap 100)"),
+});
+
+const GitBlameInput = z.strictObject({
+  path: z.string().describe("File to blame (head revision)"),
+  start_line: z.number().optional().describe("1-based first line"),
+  end_line: z.number().optional().describe("1-based last line"),
+});
+
+const GitDiffRangeInput = z.strictObject({
+  range: z.string().describe('Commit range, e.g. "<baseSha>..HEAD" or "<oldSha>..<newSha>"'),
+  path: z.string().optional().describe("Restrict the diff to a file or directory"),
+});
+
 function toInputSchema(schema: z.ZodType): Record<string, unknown> {
   const raw = z.toJSONSchema(schema) as Record<string, unknown>;
   delete raw.$schema;
   return sanitizeForStrictMode(raw) as Record<string, unknown>;
 }
 
-/** Tool definitions in a fixed order so the cached prompt prefix stays byte-stable. */
-export function toolDefinitions(): Array<{
+interface ToolDef {
   name: string;
   description: string;
   input_schema: Record<string, unknown>;
   strict: boolean;
-}> {
-  return [
+}
+
+/**
+ * Tool definitions in a fixed order so the cached prompt prefix stays
+ * byte-stable. The git-history tools are appended in one fixed position (after
+ * grep, before submit_review) only when history is available.
+ */
+export function toolDefinitions(withGit = false): ToolDef[] {
+  const defs: ToolDef[] = [
     {
       name: "read_file",
       description:
@@ -70,25 +93,66 @@ export function toolDefinitions(): Array<{
       input_schema: toInputSchema(GrepInput),
       strict: true,
     },
-    {
-      name: "submit_review",
-      description:
-        "Submit the completed review. Call exactly once, as your final action, after Phases 1-4 are done. If validation fails, fix the listed fields and call again.",
-      input_schema: submitReviewJsonSchema(),
-      strict: true,
-    },
   ];
+  if (withGit) {
+    defs.push(
+      {
+        name: "git_log",
+        description:
+          "List commits (hash, author, date, subject). Pass range like \"<baseSha>..HEAD\" to see only this PR's commits. Use to understand how the change was built and what each commit did.",
+        input_schema: toInputSchema(GitLogInput),
+        strict: true,
+      },
+      {
+        name: "git_blame",
+        description:
+          "Show, per line, the commit that last changed it. Use to confirm whether a line is genuinely INTRODUCED by this PR vs pre-existing (EXPOSED/PRE-EXISTING), rather than guessing.",
+        input_schema: toInputSchema(GitBlameInput),
+        strict: true,
+      },
+      {
+        name: "git_diff_range",
+        description:
+          'Show the diff between two commits, e.g. "<baseSha>..HEAD" for the whole PR or "<lastReviewedSha>..HEAD" to see only what changed since a prior review.',
+        input_schema: toInputSchema(GitDiffRangeInput),
+        strict: true,
+      },
+    );
+  }
+  defs.push({
+    name: "submit_review",
+    description:
+      "Submit the completed review. Call exactly once, as your final action, after Phases 1-4 are done. If validation fails, fix the listed fields and call again.",
+    input_schema: submitReviewJsonSchema(),
+    strict: true,
+  });
+  return defs;
 }
 
 export interface RepoTools {
-  definitions: ReturnType<typeof toolDefinitions>;
+  definitions: ToolDef[];
   execute(name: string, input: unknown): Promise<ToolResultPayload>;
   /** Head-revision file reader used for suggestion no-op checks. */
   readLines(relPath: string): string[] | undefined;
 }
 
-export function makeTools(repoDir: string): RepoTools {
+export interface MakeToolsOptions {
+  /** `-c http....extraheader=...` prefix so blame/diff can fault blobs. */
+  gitConfigArgs?: string[];
+  /** When true, expose git_log/git_blame/git_diff_range. */
+  historyAvailable?: boolean;
+}
+
+const GIT_MAX_BYTES = 20_000;
+const GIT_TIMEOUT_MS = 15_000;
+// A git revision/range: shas, refs, HEAD, ^ ~ . / and .. /... ranges. No
+// leading dash (blocks option injection); paths always go after `--`.
+const SAFE_REV_RE = /^[A-Za-z0-9_][A-Za-z0-9_./^~-]*(\.\.\.?[A-Za-z0-9_][A-Za-z0-9_./^~-]*)?$/;
+
+export function makeTools(repoDir: string, opts: MakeToolsOptions = {}): RepoTools {
   const root = path.resolve(repoDir);
+  const gitConfigArgs = opts.gitConfigArgs ?? [];
+  const historyAvailable = opts.historyAvailable ?? false;
 
   async function resolveSafe(rel: string): Promise<string | undefined> {
     const candidate = path.resolve(root, rel.replace(/^\/+/, ""));
@@ -236,6 +300,79 @@ export function makeTools(repoDir: string): RepoTools {
     });
   }
 
+  /** Runs a read-only git subcommand with auth, capping output. */
+  function runGitTool(subArgs: string[]): Promise<ToolResultPayload> {
+    const args = [...gitConfigArgs, "--no-pager", ...subArgs];
+    return new Promise((resolve) => {
+      const child = spawn("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"], timeout: GIT_TIMEOUT_MS });
+      let stdout = "";
+      let stderr = "";
+      let killed = false;
+      child.stdout.on("data", (d) => {
+        stdout += d;
+        if (stdout.length > GIT_MAX_BYTES * 4) {
+          killed = true;
+          child.kill();
+        }
+      });
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("error", (err) => resolve({ content: `git failed to start: ${String(err)}`, isError: true }));
+      child.on("close", (code) => {
+        if (code !== 0 && !killed && stdout === "") {
+          resolve({ content: `git error: ${stderr.trim().slice(0, 500) || `exit ${code}`}`, isError: true });
+          return;
+        }
+        let text = stdout;
+        if (text.length > GIT_MAX_BYTES) {
+          text = text.slice(0, GIT_MAX_BYTES) + "\n[truncated — narrow the range or restrict to a path]";
+        } else if (killed) {
+          text += "\n[truncated — narrow the range or restrict to a path]";
+        }
+        resolve({ content: text || "(no output)", isError: false });
+      });
+    });
+  }
+
+  function gitLog(input: z.infer<typeof GitLogInput>): Promise<ToolResultPayload> {
+    if (input.range !== undefined && !SAFE_REV_RE.test(input.range)) {
+      return Promise.resolve({ content: `Invalid range: ${JSON.stringify(input.range)}`, isError: true });
+    }
+    if (input.path !== undefined && input.path.startsWith("-")) {
+      return Promise.resolve({ content: "path must not start with '-'", isError: true });
+    }
+    const max = Math.min(Math.max(Math.floor(input.max ?? 30), 1), 100);
+    const args = ["log", "--no-color", `--max-count=${max}`, "--date=short", "--format=%h %ad %an: %s"];
+    if (input.range) args.push(input.range);
+    args.push("--");
+    if (input.path) args.push(input.path);
+    return runGitTool(args);
+  }
+
+  function gitBlame(input: z.infer<typeof GitBlameInput>): Promise<ToolResultPayload> {
+    if (input.path.startsWith("-")) {
+      return Promise.resolve({ content: "path must not start with '-'", isError: true });
+    }
+    const args = ["blame", "--date=short"];
+    if (input.start_line !== undefined) {
+      const end = input.end_line ?? input.start_line;
+      args.push("-L", `${Math.max(1, Math.floor(input.start_line))},${Math.max(1, Math.floor(end))}`);
+    }
+    args.push("--", input.path);
+    return runGitTool(args);
+  }
+
+  function gitDiffRange(input: z.infer<typeof GitDiffRangeInput>): Promise<ToolResultPayload> {
+    if (!SAFE_REV_RE.test(input.range)) {
+      return Promise.resolve({ content: `Invalid range: ${JSON.stringify(input.range)}`, isError: true });
+    }
+    if (input.path !== undefined && input.path.startsWith("-")) {
+      return Promise.resolve({ content: "path must not start with '-'", isError: true });
+    }
+    const args = ["diff", "--no-color", input.range, "--"];
+    if (input.path) args.push(input.path);
+    return runGitTool(args);
+  }
+
   function readLinesSync(relPath: string): string[] | undefined {
     try {
       const candidate = path.resolve(root, relPath.replace(/^\/+/, ""));
@@ -249,7 +386,7 @@ export function makeTools(repoDir: string): RepoTools {
   }
 
   return {
-    definitions: toolDefinitions(),
+    definitions: toolDefinitions(historyAvailable),
     async execute(name, input): Promise<ToolResultPayload> {
       try {
         switch (name) {
@@ -267,6 +404,21 @@ export function makeTools(repoDir: string): RepoTools {
             const parsed = GrepInput.safeParse(input);
             if (!parsed.success) return zodError(parsed.error);
             return await grep(parsed.data);
+          }
+          case "git_log":
+          case "git_blame":
+          case "git_diff_range": {
+            if (!historyAvailable) return { content: `${name} is unavailable (git history was not fetched).`, isError: true };
+            if (name === "git_log") {
+              const parsed = GitLogInput.safeParse(input);
+              return parsed.success ? await gitLog(parsed.data) : zodError(parsed.error);
+            }
+            if (name === "git_blame") {
+              const parsed = GitBlameInput.safeParse(input);
+              return parsed.success ? await gitBlame(parsed.data) : zodError(parsed.error);
+            }
+            const parsed = GitDiffRangeInput.safeParse(input);
+            return parsed.success ? await gitDiffRange(parsed.data) : zodError(parsed.error);
           }
           default:
             return { content: `Unknown tool: ${name}`, isError: true };

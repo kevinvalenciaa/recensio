@@ -57,6 +57,10 @@ export interface PrContext {
   repoConfig?: import("../github/config.js").RecensioConfig;
   /** Prior findings the team pushed back on, to avoid re-raising (M4). */
   dismissedFindings?: import("../github/feedback.js").DismissedFinding[];
+  /** True when git history tools (log/blame/diff) are available (M5). */
+  historyAvailable?: boolean;
+  /** On re-review, the prior reviewed SHA when it's an ancestor of head (M5). */
+  incrementalSinceSha?: string;
 }
 
 export interface GateResult {
