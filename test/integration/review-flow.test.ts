@@ -96,6 +96,13 @@ function mockPrFetch(files: unknown[], reviews: unknown[] = []) {
     .get("/repos/acme/widgets/pulls/7/reviews")
     .query(true)
     .reply(200, reviews);
+  // Config load (M4): runs before the gate on every path. Default = no config.
+  scope
+    .get("/repos/acme/widgets")
+    .reply(200, { default_branch: "main" })
+    .get("/repos/acme/widgets/contents/.recensio.yml")
+    .query(true)
+    .reply(404, {});
   // Dependency block (M1): runs after clone, so skip-at-gate tests never hit it.
   scope
     .get((uri) => uri.startsWith("/repos/acme/widgets/dependency-graph/compare/"))

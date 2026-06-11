@@ -3,6 +3,12 @@ import type { Config } from "../shared/config.js";
 import type { GateResult, PrContext, TriggerContext } from "../shared/types.js";
 import { isExcludedFromGate } from "../github/sizegate.js";
 import { renderDependencyBlock } from "../github/deps.js";
+import { isConfigIgnored, matchedInstructions } from "../github/config.js";
+
+/** A file is excluded from review attention if the gate or repo config drops it. */
+function excludedFromReview(ctx: PrContext, filename: string): boolean {
+  return isExcludedFromGate(filename) || (ctx.repoConfig ? isConfigIgnored(ctx.repoConfig, filename) : false);
+}
 
 export interface SystemBlock {
   type: "text";
@@ -58,7 +64,7 @@ ${truncate(meta.body.trim() || "(empty)", PR_BODY_MAX)}
   );
 
   const statLines = ctx.files.map((f) => {
-    const excluded = isExcludedFromGate(f.filename) ? "  [excluded from gate]" : "";
+    const excluded = excludedFromReview(ctx, f.filename) ? "  [excluded]" : "";
     const renamed = f.previousFilename ? `  (renamed from ${f.previousFilename})` : "";
     return `${f.status.padEnd(8)} ${f.filename}  +${f.additions}/-${f.deletions}${renamed}${excluded}`;
   });
@@ -77,6 +83,25 @@ This repository defines a pull request template at ${ctx.prTemplate.path}. Verif
 
 ${ctx.prTemplate.content}
 </pr_template>`,
+    );
+  }
+
+  if (ctx.repoConfig) {
+    const matched = matchedInstructions(ctx.repoConfig, ctx.files.map((f) => f.filename));
+    if (matched.length > 0) {
+      const lines = matched.map((i) => `- For files matching \`${i.path}\`: ${i.guidance}`);
+      sections.push(
+        `<repo_guidance>\nThe repository's .recensio.yml defines review guidance for these changed paths. Apply it:\n${lines.join("\n")}\n</repo_guidance>`,
+      );
+    }
+  }
+
+  if (ctx.dismissedFindings && ctx.dismissedFindings.length > 0) {
+    const lines = ctx.dismissedFindings.map(
+      (d) => `- ${d.path}${d.line ? `:${d.line}` : ""} — "${d.title}" (${d.signal})`,
+    );
+    sections.push(
+      `<prior_feedback>\nThe team previously dismissed these Recensio findings. Do NOT re-raise the same issue unless the code materially changed in a way that revives it; if you believe one is still valid, say why in summary rather than re-posting an inline comment:\n${lines.join("\n")}\n</prior_feedback>`,
     );
   }
 
@@ -111,10 +136,10 @@ ${truncate(prev.summaryExcerpt, PREV_SUMMARY_MAX)}
 }
 
 function buildPatchesSection(ctx: PrContext, cfg: Config): string {
-  // Reviewable source first, then gate-excluded noise; large files last.
+  // Reviewable source first, then excluded noise; large files last.
   const ordered = [...ctx.files].sort((a, b) => {
-    const exA = isExcludedFromGate(a.filename) ? 1 : 0;
-    const exB = isExcludedFromGate(b.filename) ? 1 : 0;
+    const exA = excludedFromReview(ctx, a.filename) ? 1 : 0;
+    const exB = excludedFromReview(ctx, b.filename) ? 1 : 0;
     if (exA !== exB) return exA - exB;
     return b.changes - a.changes;
   });
@@ -129,8 +154,8 @@ function buildPatchesSection(ctx: PrContext, cfg: Config): string {
       chunks.push(`${header}\n(no text diff — binary or oversized; use read_file if text)`);
       continue;
     }
-    if (isExcludedFromGate(f.filename)) {
-      chunks.push(`${header}\n(patch omitted — excluded from gate as lockfile/vendored/generated)`);
+    if (excludedFromReview(ctx, f.filename)) {
+      chunks.push(`${header}\n(patch omitted — excluded as lockfile/vendored/generated or by .recensio.yml ignore)`);
       continue;
     }
     let body = f.patch;

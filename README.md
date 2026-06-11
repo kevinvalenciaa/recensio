@@ -52,8 +52,29 @@ Only users with **write/maintain/admin** access can summon `@recensio`; bot comm
 | `max-turns` | `40` | Agent turn cap |
 | `max-reviews-per-hour` | `8` | Per-repo cap on review runs per rolling hour (`0` disables). Counts this workflow's recent runs, so it needs `actions: read` in the workflow permissions; throttled requests get a ⏳ notice naming the retry time. |
 | `resolve-stale-findings` | `true` | On re-review, reply to and collapse the comment threads of prior findings verified fixed (see below). |
+| `config-path` | `.recensio.yml` | Path (in the base default branch) to the optional repo config — see below. |
 
 Outputs: `verdict`, `review-url`, `skipped`.
+
+## Per-repo config (`.recensio.yml`)
+
+Drop a `.recensio.yml` at the root of your **default branch** (it is read from there, never from the PR head, so a PR can't change how it gets reviewed). All keys are optional:
+
+```yaml
+# Path-scoped review guidance — applied when a changed file matches the glob.
+instructions:
+  - path: "src/api/**"
+    guidance: "Every handler must authenticate and validate input with zod before touching the DB."
+  - path: "**/*.sql"
+    guidance: "Flag any non-transactional multi-statement migration."
+
+# Globs to exclude from review (folded into the size gate, like lockfiles).
+ignore:
+  - "src/generated/**"
+  - "**/*.pb.go"
+```
+
+Recensio also **learns from pushback within a PR**: if a maintainer replies to one of its inline comments with wording like "not a bug" / "by design", or 👎s the comment, it won't re-raise that finding on the next `@recensio` run.
 
 ## Stale findings on re-review
 

@@ -46,6 +46,10 @@ inputs:
     description: "On re-review, reply to and collapse the comment threads of prior findings verified fixed. Replies always post (pull-requests: write); collapsing the thread additionally needs the token to have `contents: write`."
     required: false
     default: "true"
+  config-path:
+    description: "Path (in the base repo's default branch) to the optional .recensio.yml config: per-path review instructions and ignore globs."
+    required: false
+    default: ".recensio.yml"
 
 outputs:
   verdict:

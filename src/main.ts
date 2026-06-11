@@ -26,6 +26,7 @@ async function main(): Promise<void> {
     maxTurns: core.getInput("max-turns"),
     maxReviewsPerHour: core.getInput("max-reviews-per-hour"),
     resolveStaleFindings: core.getInput("resolve-stale-findings"),
+    configPath: core.getInput("config-path"),
   });
   core.setSecret(cfg.anthropicApiKey);
 

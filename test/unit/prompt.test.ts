@@ -58,10 +58,10 @@ describe("buildInitialUserText", () => {
     const text = buildInitialUserText(ctx(), gate, autoTrigger, cfg);
     expect(text).toContain("PR #7: Add users endpoint");
     expect(text).toContain("Base: main ← Head: feat/users");
-    expect(text).toContain("package-lock.json  +900/-900  [excluded from gate]");
+    expect(text).toContain("package-lock.json  +900/-900  [excluded]");
     expect(text).toContain("Size gate (computed by the harness): changed LOC 700");
     // excluded files contribute no patch body; binary noted
-    expect(text).toContain("(patch omitted — excluded from gate as lockfile/vendored/generated)");
+    expect(text).toContain("(patch omitted — excluded as lockfile/vendored/generated or by .recensio.yml ignore)");
     expect(text).toContain("(no text diff — binary or oversized; use read_file if text)");
     // source files ordered before excluded ones
     expect(text.indexOf("### src/users.ts")).toBeLessThan(text.indexOf("### package-lock.json"));
@@ -108,6 +108,25 @@ describe("buildInitialUserText", () => {
     expect(text).toContain("<dependency_changes>");
     expect(text).toContain("⚠️ CRITICAL GHSA-x: RCE");
     expect(text.indexOf("<dependency_changes>")).toBeLessThan(text.indexOf("<patches>"));
+  });
+
+  it("renders repo guidance and prior-feedback blocks when present", () => {
+    const withConfig = ctx({
+      repoConfig: { instructions: [{ path: "src/**", guidance: "Validate all inputs with zod." }], ignore: [] },
+      dismissedFindings: [{ priorId: "F3", path: "src/users.ts", line: 12, title: "racy counter", signal: "👎 from @bob" }],
+    });
+    const text = buildInitialUserText(withConfig, gate, autoTrigger, cfg);
+    expect(text).toContain("<repo_guidance>");
+    expect(text).toContain("For files matching `src/**`: Validate all inputs with zod.");
+    expect(text).toContain("<prior_feedback>");
+    expect(text).toContain('src/users.ts:12 — "racy counter" (👎 from @bob)');
+  });
+
+  it("marks config-ignored files as excluded and omits their patches", () => {
+    const withIgnore = ctx({ repoConfig: { instructions: [], ignore: ["src/big.ts"] } });
+    const text = buildInitialUserText(withIgnore, gate, autoTrigger, cfg);
+    expect(text).toContain("src/big.ts  +200/-100  [excluded]");
+    expect(text).toContain("excluded as lockfile/vendored/generated or by .recensio.yml ignore");
   });
 
   it("renders the previous-review digest when present", () => {

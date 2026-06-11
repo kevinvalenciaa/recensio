@@ -53,6 +53,10 @@ export interface PrContext {
   prTemplate?: { path: string; content: string };
   /** Dependency manifest diff with advisories, when the graph is available. */
   dependencyChanges?: import("../github/deps.js").DependencyChanges;
+  /** Parsed `.recensio.yml` from the base default branch (M4). */
+  repoConfig?: import("../github/config.js").RecensioConfig;
+  /** Prior findings the team pushed back on, to avoid re-raising (M4). */
+  dismissedFindings?: import("../github/feedback.js").DismissedFinding[];
 }
 
 export interface GateResult {

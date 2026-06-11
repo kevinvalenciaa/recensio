@@ -53,11 +53,15 @@ export function isExcludedFromGate(filename: string): boolean {
   return EXCLUDE_PATTERNS.some((re) => re.test(filename));
 }
 
-export function computeGate(files: PrFile[], threshold: number): GateResult {
+export function computeGate(
+  files: PrFile[],
+  threshold: number,
+  extraExclude?: (filename: string) => boolean,
+): GateResult {
   let changedLoc = 0;
   const excluded: string[] = [];
   for (const f of files) {
-    if (isExcludedFromGate(f.filename)) {
+    if (isExcludedFromGate(f.filename) || extraExclude?.(f.filename)) {
       excluded.push(f.filename);
     } else {
       changedLoc += f.additions + f.deletions;

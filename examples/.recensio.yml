@@ -1,0 +1,18 @@
+# Optional Recensio config. Place at the root of your DEFAULT branch.
+# It is read from the default branch (never the PR head), so a pull request
+# cannot change how it gets reviewed. All keys are optional.
+
+# Path-scoped review guidance: applied when a changed file matches the glob.
+instructions:
+  - path: "src/api/**"
+    guidance: "Every handler must authenticate, authorize, and validate input with zod before any DB access."
+  - path: "**/*.sql"
+    guidance: "Flag any non-transactional multi-statement change; migrations must be reversible."
+  - path: "**/*.test.ts"
+    guidance: "New behavior needs a test; error paths must be asserted, not just the happy path."
+
+# Globs to exclude from review entirely (also removed from the size-gate LOC).
+ignore:
+  - "src/generated/**"
+  - "**/*.pb.go"
+  - "**/__snapshots__/**"

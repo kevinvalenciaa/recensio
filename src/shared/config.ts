@@ -16,6 +16,8 @@ export interface Config {
   maxReviewsPerHour: number;
   /** On re-review, reply to + resolve threads for findings verified fixed. */
   resolveStaleFindings: boolean;
+  /** Path of the per-repo config file, read from the base default branch. */
+  configPath: string;
   maxTokensPerTurn: number;
   /** Total characters of inline patches embedded in the first message. */
   patchCharBudget: number;
@@ -68,6 +70,7 @@ export interface RawConfigInputs {
   maxTurns?: string;
   maxReviewsPerHour?: string;
   resolveStaleFindings?: string;
+  configPath?: string;
   dryRun?: boolean;
 }
 
@@ -88,6 +91,7 @@ export function buildConfig(raw: RawConfigInputs): Config {
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS.maxTurns, "max-turns"),
     maxReviewsPerHour: parsePositiveInt(raw.maxReviewsPerHour, DEFAULTS.maxReviewsPerHour, "max-reviews-per-hour"),
     resolveStaleFindings: parseBool(raw.resolveStaleFindings, true),
+    configPath: raw.configPath?.trim() || ".recensio.yml",
     maxTokensPerTurn: DEFAULTS.maxTokensPerTurn,
     patchCharBudget: DEFAULTS.patchCharBudget,
     patchCharPerFile: DEFAULTS.patchCharPerFile,

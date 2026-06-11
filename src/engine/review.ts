@@ -7,6 +7,8 @@ import { mapVerdict, postReview, renderReviewBody, upsertMarkerComment } from ".
 import { fetchPrContext, listFiles } from "../github/pr.js";
 import { fetchDependencyChanges } from "../github/deps.js";
 import { resolveFixedFindings, type ResolutionTelemetry } from "../github/threads.js";
+import { loadConfig, isConfigIgnored } from "../github/config.js";
+import { fetchDismissedFindings } from "../github/feedback.js";
 import { SKIP_MARKER, computeGate, skipCommentBody } from "../github/sizegate.js";
 import { findPrTemplate } from "../github/template.js";
 import { anthropicTurnRunner, runAgent, type TurnRunner } from "./agent.js";
@@ -39,7 +41,12 @@ export async function runReview(
     return { kind: "skipped-draft" };
   }
 
-  let gate = computeGate(ctx.files, cfg.minLoc);
+  // Config comes from the base default branch (never PR-head); ignore globs
+  // fold into the gate so configured-noise files don't count toward the LOC.
+  ctx.repoConfig = await loadConfig(ok, owner, repo, cfg.configPath);
+  const extraExclude = (f: string) => isConfigIgnored(ctx.repoConfig!, f);
+
+  let gate = computeGate(ctx.files, cfg.minLoc, extraExclude);
   if (gate.belowThreshold && !trigger.bypassGate) {
     log.info(`size gate: ${gate.changedLoc} LOC < ${gate.threshold} — skipping review`);
     if (!cfg.dryRun) {
@@ -58,7 +65,7 @@ export async function runReview(
       ctx.files = refreshed.files;
       ctx.filesTruncated = refreshed.truncated;
       ctx.meta.headSha = cloned.headSha;
-      gate = computeGate(ctx.files, cfg.minLoc);
+      gate = computeGate(ctx.files, cfg.minLoc, extraExclude);
       if (gate.belowThreshold && !trigger.bypassGate) {
         if (!cfg.dryRun) {
           await upsertMarkerComment(ok, owner, repo, prNumber, SKIP_MARKER, skipCommentBody(gate));
@@ -75,6 +82,14 @@ export async function runReview(
       log.info(
         `dependency changes: ${ctx.dependencyChanges.changes.length}${ctx.dependencyChanges.hasVulnerabilities ? " (with advisories)" : ""}`,
       );
+    }
+
+    // Only re-reviews can have prior findings to mine pushback from.
+    if (ctx.previousReview) {
+      ctx.dismissedFindings = await fetchDismissedFindings(ok, owner, repo, prNumber, new Set());
+      if (ctx.dismissedFindings.length > 0) {
+        log.info(`prior feedback: ${ctx.dismissedFindings.length} dismissed finding(s) — will not re-raise`);
+      }
     }
 
     const tools = makeTools(cloned.dir);
