@@ -29,6 +29,7 @@ export function validReview(overrides: Partial<ReviewResult> = {}): ReviewResult
     required_tests: ["users endpoint rejects quote characters"],
     top_actions: ["Parameterize the users query"],
     nits_markdown: "",
+    resolved_findings: [],
     ...overrides,
   };
 }

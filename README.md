@@ -51,8 +51,15 @@ Only users with **write/maintain/admin** access can summon `@recensio`; bot comm
 | `never-approve` | `false` | Post approval verdicts as `COMMENT` |
 | `max-turns` | `40` | Agent turn cap |
 | `max-reviews-per-hour` | `8` | Per-repo cap on review runs per rolling hour (`0` disables). Counts this workflow's recent runs, so it needs `actions: read` in the workflow permissions; throttled requests get a ⏳ notice naming the retry time. |
+| `resolve-stale-findings` | `true` | On re-review, reply to and collapse the comment threads of prior findings verified fixed (see below). |
 
 Outputs: `verdict`, `review-url`, `skipped`.
+
+## Stale findings on re-review
+
+When you push fixes and comment `@recensio` again, Recensio checks each prior finding against the new head. For every one it confirms fixed, it posts a "✅ verified fixed at `<sha>`" reply on that finding's comment thread and **collapses the thread**, so the PR doesn't accumulate dead comments across rounds.
+
+The reply always posts (it needs only `pull-requests: write`). **Collapsing the thread additionally requires the token to have `contents: write`** — GitHub gates the resolve-thread API behind it for the default Actions token. Without `contents: write`, the verified-fixed reply still posts and the run logs how many threads it couldn't collapse; grant `contents: write` in your workflow's `permissions:` block for full collapse, or set `resolve-stale-findings: "false"` to turn the behavior off. (GitHub.com only; GitHub Enterprise Server is not yet supported.)
 
 ## Approvals and the default token
 

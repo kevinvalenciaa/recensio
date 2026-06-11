@@ -128,6 +128,8 @@ export type ReviewOutcome =
       inlineCount: number;
       fallbackCount: number;
       usageFooter: string;
+      /** Stale-thread resolution counts on re-review (M3). */
+      resolution?: { attempted: number; replied: number; resolved: number; forbidden: number };
       /** Populated for dry runs so the CLI can render what would be posted. */
       rendered?: { body: string; comments: InlineComment[] };
     };

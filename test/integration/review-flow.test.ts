@@ -298,4 +298,52 @@ describe("runReview end to end (mocked GitHub + scripted agent)", () => {
     expect(initial).toContain("F1 [P0] src/api/users.ts:142");
     expect(initial).toContain("REQUEST CHANGES");
   });
+
+  it("replies to and resolves a prior finding the agent reports fixed", async () => {
+    const prevBody = `<!-- recensio:review -->\n<!-- recensio:commit:${"d".repeat(40)} -->\n## 🔁 REQUEST CHANGES\n\nfound stuff`;
+    const review = validReview({ findings: [], resolved_findings: [{ id: "F1", evidence: "now parameterized" }] });
+
+    let reply: any;
+    let mutation: any;
+    mockPrFetch(
+      [fileEntry(400, 200)],
+      [{ id: 1, body: prevBody, commit_id: "d".repeat(40), submitted_at: "2026-06-01T00:00:00Z", user: { login: "x[bot]" } }],
+    )
+      .get("/repos/acme/widgets/pulls/7/comments")
+      .query(true)
+      .reply(200, [
+        { id: 5, path: "src/api/users.ts", line: 142, body: "**F1**\n\n<!-- recensio:finding:F1 -->" },
+      ])
+      .post("/repos/acme/widgets/pulls/7/reviews")
+      .reply(200, { html_url: "u" })
+      .post("/graphql", (b: any) => b.query.includes("reviewThreads"))
+      .reply(200, {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: "T1", isResolved: false, comments: { nodes: [{ databaseId: 5, body: "x\n<!-- recensio:finding:F1 -->" }] } }],
+              },
+            },
+          },
+        },
+      })
+      .post("/repos/acme/widgets/pulls/7/comments/5/replies", (b: any) => ((reply = b), true))
+      .reply(201, {})
+      .post("/graphql", (b: any) => (b.query.includes("resolveReviewThread") ? ((mutation = b), true) : false))
+      .reply(200, { data: { resolveReviewThread: { thread: { isResolved: true } } } });
+
+    const command: TriggerContext = { ...autoTrigger, kind: "command", commenter: "bob", bypassGate: true };
+    const outcome = await runReview(command, cfg(), makeOctokit("t"), {
+      turnRunner: submittingRunner(review).runTurn,
+      clone: fakeClone(),
+    });
+
+    expect(reply.body).toContain("now parameterized");
+    expect(mutation.variables.threadId).toBe("T1");
+    if (outcome.kind === "reviewed") {
+      expect(outcome.resolution).toMatchObject({ attempted: 1, replied: 1, resolved: 1, forbidden: 0 });
+    }
+  });
 });

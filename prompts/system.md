@@ -358,5 +358,6 @@ No `<pr_template>` block means the repository has no template — there is nothi
 When your first message contains a `<previous_review>` block, a maintainer asked you to re-review after changes:
 
 - For each prior finding, verify against the current head revision whether it is resolved; report the resolved/unresolved status compactly in `summary`.
+- For each prior finding you confirm is **fixed**, add it to `resolved_findings` with its original id and one-line evidence (what you checked that proves it's fixed). The harness replies on that finding's stale comment thread and collapses it, so the PR doesn't accumulate dead comments. Only list ids that appear in `<previous_review>`.
 - Re-raise an unresolved prior finding with its original id in the title so the thread connects; do not re-anchor an inline comment for a finding whose code and status are unchanged — mention it in `summary` instead.
 - Focus fresh investigation on what changed since the previously reviewed commit, plus the blast radius of those changes.

@@ -6,6 +6,7 @@ import { planPlacement } from "../github/placement.js";
 import { mapVerdict, postReview, renderReviewBody, upsertMarkerComment } from "../github/post.js";
 import { fetchPrContext, listFiles } from "../github/pr.js";
 import { fetchDependencyChanges } from "../github/deps.js";
+import { resolveFixedFindings, type ResolutionTelemetry } from "../github/threads.js";
 import { SKIP_MARKER, computeGate, skipCommentBody } from "../github/sizegate.js";
 import { findPrTemplate } from "../github/template.js";
 import { anthropicTurnRunner, runAgent, type TurnRunner } from "./agent.js";
@@ -137,6 +138,15 @@ export async function runReview(
     }
 
     const posted = await postReview(ok, ctx, placed, cloned.headSha);
+
+    // Collapse threads for prior findings the agent verified fixed (re-review).
+    let resolution: ResolutionTelemetry | undefined;
+    if (cfg.resolveStaleFindings && review.resolved_findings.length > 0 && ctx.previousReview) {
+      const knownIds = new Set(ctx.previousReview.findings.map((f) => f.id));
+      const eligible = review.resolved_findings.filter((r) => knownIds.has(r.id));
+      resolution = await resolveFixedFindings(ok, owner, repo, prNumber, eligible, cloned.headSha);
+    }
+
     return {
       kind: "reviewed",
       verdict: review.verdict,
@@ -146,6 +156,7 @@ export async function runReview(
       inlineCount: placed.comments.length,
       fallbackCount: placed.fallbacks.length,
       usageFooter: meter.footerLine(),
+      resolution,
     };
   } finally {
     await cloned.cleanup();

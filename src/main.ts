@@ -25,6 +25,7 @@ async function main(): Promise<void> {
     neverApprove: core.getInput("never-approve"),
     maxTurns: core.getInput("max-turns"),
     maxReviewsPerHour: core.getInput("max-reviews-per-hour"),
+    resolveStaleFindings: core.getInput("resolve-stale-findings"),
   });
   core.setSecret(cfg.anthropicApiKey);
 
@@ -85,6 +86,14 @@ async function main(): Promise<void> {
         `- Verdict: **${outcome.verdict.replace(/_/g, " ")}** (as ${outcome.event})`,
         `- Inline comments: ${outcome.inlineCount} · body-only findings: ${outcome.fallbackCount}`,
         `- Usage: ${outcome.usageFooter}`,
+        ...(outcome.resolution && outcome.resolution.attempted > 0
+          ? [
+              `- Stale findings: ${outcome.resolution.replied} replied, ${outcome.resolution.resolved} resolved` +
+                (outcome.resolution.forbidden > 0
+                  ? ` (${outcome.resolution.forbidden} need \`contents: write\` to collapse)`
+                  : ""),
+            ]
+          : []),
         ...(outcome.reviewUrl ? [`- ${outcome.reviewUrl}`] : []),
         ...(outcome.degraded.length > 0 ? [``, `Degradations:`, ...outcome.degraded.map((d) => `- ${d}`)] : []),
       ];

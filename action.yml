@@ -42,6 +42,10 @@ inputs:
     description: "Per-repo cap on review runs per rolling hour (0 disables). Needs `actions: read` in the workflow permissions; without it the check is skipped with a warning."
     required: false
     default: "8"
+  resolve-stale-findings:
+    description: "On re-review, reply to and collapse the comment threads of prior findings verified fixed. Replies always post (pull-requests: write); collapsing the thread additionally needs the token to have `contents: write`."
+    required: false
+    default: "true"
 
 outputs:
   verdict:

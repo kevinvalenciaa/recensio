@@ -14,6 +14,8 @@ export interface Config {
   maxTurns: number;
   /** Per-repo cap on reviews per hour (0 disables). Enforced in the Action only. */
   maxReviewsPerHour: number;
+  /** On re-review, reply to + resolve threads for findings verified fixed. */
+  resolveStaleFindings: boolean;
   maxTokensPerTurn: number;
   /** Total characters of inline patches embedded in the first message. */
   patchCharBudget: number;
@@ -65,6 +67,7 @@ export interface RawConfigInputs {
   neverApprove?: string;
   maxTurns?: string;
   maxReviewsPerHour?: string;
+  resolveStaleFindings?: string;
   dryRun?: boolean;
 }
 
@@ -84,6 +87,7 @@ export function buildConfig(raw: RawConfigInputs): Config {
     neverApprove: parseBool(raw.neverApprove, false),
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS.maxTurns, "max-turns"),
     maxReviewsPerHour: parsePositiveInt(raw.maxReviewsPerHour, DEFAULTS.maxReviewsPerHour, "max-reviews-per-hour"),
+    resolveStaleFindings: parseBool(raw.resolveStaleFindings, true),
     maxTokensPerTurn: DEFAULTS.maxTokensPerTurn,
     patchCharBudget: DEFAULTS.patchCharBudget,
     patchCharPerFile: DEFAULTS.patchCharPerFile,

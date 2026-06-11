@@ -67,6 +67,12 @@ export const SubmitReviewSchema = z.strictObject({
   required_tests: z.array(z.string()).describe("One line each: test case → file/function it must cover"),
   top_actions: z.array(z.string()).describe("Ranked by risk reduction, max 5, one line each"),
   nits_markdown: z.string().describe("ALL P3 nits as one batched markdown list; empty string if none"),
+  resolved_findings: z
+    .array(z.strictObject({ id: z.string(), evidence: z.string() }))
+    .default([])
+    .describe(
+      "Re-review only: prior findings (by their original id from <previous_review>) you verified fixed at the new head, each with one-line evidence (max 250 chars). Empty otherwise.",
+    ),
 });
 
 export type Finding = z.infer<typeof FindingSchema>;
@@ -132,6 +138,12 @@ export function validateSemantics(review: ReviewResult): { ok: true; review: Rev
 
   if (review.findings.length > 50) errors.push("findings exceeds 50 — cut to the highest-risk items (Operating Instruction 5)");
   if (review.top_actions.length > 10) review.top_actions = review.top_actions.slice(0, 10);
+
+  for (const [i, r] of review.resolved_findings.entries()) {
+    if (r.evidence.length > 250) {
+      errors.push(`resolved_findings[${i}].evidence is ${r.evidence.length} chars — hard cap is 250. Compress.`);
+    }
+  }
 
   // Coerce (never error-loop) the verdict, grade, and overall score into
   // mutual consistency with the verified findings, so a lenient self-assessment
