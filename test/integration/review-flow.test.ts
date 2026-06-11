@@ -87,7 +87,7 @@ function submittingRunner(review = validReview()): { runTurn: TurnRunner; reques
 }
 
 function mockPrFetch(files: unknown[], reviews: unknown[] = []) {
-  return nock(API)
+  const scope = nock(API)
     .get("/repos/acme/widgets/pulls/7")
     .reply(200, prGetResponse())
     .get("/repos/acme/widgets/pulls/7/files")
@@ -96,6 +96,13 @@ function mockPrFetch(files: unknown[], reviews: unknown[] = []) {
     .get("/repos/acme/widgets/pulls/7/reviews")
     .query(true)
     .reply(200, reviews);
+  // Dependency block (M1): runs after clone, so skip-at-gate tests never hit it.
+  scope
+    .get((uri) => uri.startsWith("/repos/acme/widgets/dependency-graph/compare/"))
+    .query(true)
+    .optionally()
+    .reply(200, []);
+  return scope;
 }
 
 describe("runReview end to end (mocked GitHub + scripted agent)", () => {

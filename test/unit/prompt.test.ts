@@ -86,6 +86,30 @@ describe("buildInitialUserText", () => {
     expect(text).toContain("Below threshold — reviewed anyway");
   });
 
+  it("renders the dependency block before patches when present", () => {
+    const withDeps = ctx({
+      dependencyChanges: {
+        hasVulnerabilities: true,
+        changes: [
+          {
+            changeType: "added",
+            manifest: "package-lock.json",
+            ecosystem: "npm",
+            name: "evil",
+            version: "2.0.0",
+            license: "MIT",
+            scope: "runtime",
+            vulnerabilities: [{ severity: "critical", ghsaId: "GHSA-x", summary: "RCE", url: "https://x" }],
+          },
+        ],
+      },
+    });
+    const text = buildInitialUserText(withDeps, gate, autoTrigger, cfg);
+    expect(text).toContain("<dependency_changes>");
+    expect(text).toContain("⚠️ CRITICAL GHSA-x: RCE");
+    expect(text.indexOf("<dependency_changes>")).toBeLessThan(text.indexOf("<patches>"));
+  });
+
   it("renders the previous-review digest when present", () => {
     const withPrev = ctx({
       previousReview: {

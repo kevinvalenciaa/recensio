@@ -51,6 +51,8 @@ export interface PrContext {
   previousReview?: PreviousReviewDigest;
   /** The repository's PR template (head revision), when one exists. */
   prTemplate?: { path: string; content: string };
+  /** Dependency manifest diff with advisories, when the graph is available. */
+  dependencyChanges?: import("../github/deps.js").DependencyChanges;
 }
 
 export interface GateResult {

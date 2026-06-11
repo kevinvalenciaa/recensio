@@ -2,6 +2,7 @@ import systemPromptText from "../../prompts/system.md";
 import type { Config } from "../shared/config.js";
 import type { GateResult, PrContext, TriggerContext } from "../shared/types.js";
 import { isExcludedFromGate } from "../github/sizegate.js";
+import { renderDependencyBlock } from "../github/deps.js";
 
 export interface SystemBlock {
   type: "text";
@@ -77,6 +78,10 @@ This repository defines a pull request template at ${ctx.prTemplate.path}. Verif
 ${ctx.prTemplate.content}
 </pr_template>`,
     );
+  }
+
+  if (ctx.dependencyChanges) {
+    sections.push(renderDependencyBlock(ctx.dependencyChanges));
   }
 
   sections.push(buildPatchesSection(ctx, cfg));

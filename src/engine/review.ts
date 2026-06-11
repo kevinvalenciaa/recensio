@@ -5,6 +5,7 @@ import { buildRepoDiffModel } from "../github/diff.js";
 import { planPlacement } from "../github/placement.js";
 import { mapVerdict, postReview, renderReviewBody, upsertMarkerComment } from "../github/post.js";
 import { fetchPrContext, listFiles } from "../github/pr.js";
+import { fetchDependencyChanges } from "../github/deps.js";
 import { SKIP_MARKER, computeGate, skipCommentBody } from "../github/sizegate.js";
 import { findPrTemplate } from "../github/template.js";
 import { anthropicTurnRunner, runAgent, type TurnRunner } from "./agent.js";
@@ -67,6 +68,13 @@ export async function runReview(
 
     ctx.prTemplate = findPrTemplate(cloned.dir);
     if (ctx.prTemplate) log.info(`PR template found at ${ctx.prTemplate.path} — compliance will be reviewed`);
+
+    ctx.dependencyChanges = await fetchDependencyChanges(ok, owner, repo, ctx.meta.baseSha, cloned.headSha);
+    if (ctx.dependencyChanges) {
+      log.info(
+        `dependency changes: ${ctx.dependencyChanges.changes.length}${ctx.dependencyChanges.hasVulnerabilities ? " (with advisories)" : ""}`,
+      );
+    }
 
     const tools = makeTools(cloned.dir);
     const meter = new UsageMeter(cfg.model);
