@@ -30895,7 +30895,49 @@ function validateSemantics(review) {
   }
   if (review.findings.length > 50) errors.push("findings exceeds 50 \u2014 cut to the highest-risk items (Operating Instruction 5)");
   if (review.top_actions.length > 10) review.top_actions = review.top_actions.slice(0, 10);
+  enforceConsistency(review);
   return errors.length > 0 ? { ok: false, errors } : { ok: true, review };
+}
+var SCORE_WEIGHTS = {
+  security: 0.3,
+  correctness: 0.25,
+  reliability: 0.2,
+  tests: 0.15,
+  quality: 0.1,
+  overall: 0
+};
+function gradeFromBand(overall) {
+  if (overall >= 90) return 5;
+  if (overall >= 80) return 4;
+  if (overall >= 70) return 3;
+  if (overall >= 50) return 2;
+  return 1;
+}
+function enforceConsistency(review) {
+  const s = review.scores;
+  s.overall = Math.round(
+    s.security * SCORE_WEIGHTS.security + s.correctness * SCORE_WEIGHTS.correctness + s.reliability * SCORE_WEIGHTS.reliability + s.tests * SCORE_WEIGHTS.tests + s.quality * SCORE_WEIGHTS.quality
+  );
+  let p0 = 0;
+  let p1 = 0;
+  let p2 = 0;
+  for (const f of review.findings) {
+    if (f.severity === "P0") p0 += 1;
+    else if (f.severity === "P1") p1 += 1;
+    else p2 += 1;
+  }
+  let gradeCeiling = 5;
+  if (p0 > 0 || p1 >= 2) gradeCeiling = 2;
+  else if (p1 === 1) gradeCeiling = 3;
+  else if (p2 > 0) gradeCeiling = 4;
+  review.mergability_confidence = Math.min(gradeFromBand(s.overall), gradeCeiling);
+  if (p0 > 0 || p1 >= 2) {
+    if (review.verdict === "APPROVE" || review.verdict === "APPROVE_WITH_COMMENTS") {
+      review.verdict = "REQUEST_CHANGES";
+    }
+  } else if (p1 === 1 && review.verdict === "APPROVE") {
+    review.verdict = "APPROVE_WITH_COMMENTS";
+  }
 }
 var STRICT_UNSUPPORTED_KEYWORDS = /* @__PURE__ */ new Set([
   "minimum",

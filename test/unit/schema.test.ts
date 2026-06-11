@@ -4,6 +4,7 @@ import {
   formatZodIssues,
   submitReviewJsonSchema,
   validateSemantics,
+  type ReviewResult,
 } from "../../src/engine/schema.js";
 import { validReview } from "../helpers/review.js";
 
@@ -25,15 +26,13 @@ describe("SubmitReviewSchema", () => {
 });
 
 describe("validateSemantics", () => {
-  it("clamps and rounds harmless numeric drift", () => {
+  it("clamps and rounds harmless numeric drift (scores, confidence)", () => {
     const r = validReview();
-    r.mergability_confidence = 7.4;
     r.scores.security = 150;
     r.findings[0]!.confidence = 96.6;
     const out = validateSemantics(r);
     expect(out.ok).toBe(true);
     if (out.ok) {
-      expect(out.review.mergability_confidence).toBe(5);
       expect(out.review.scores.security).toBe(100);
       expect(out.review.findings[0]!.confidence).toBe(97);
     }
@@ -58,6 +57,74 @@ describe("validateSemantics", () => {
     const out = validateSemantics(r);
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.review.findings[0]!.end_line).toBeUndefined();
+  });
+});
+
+describe("verdict/score enforcement", () => {
+  function withFindings(severities: Array<"P0" | "P1" | "P2">, verdict: ReviewResult["verdict"]) {
+    const base = validReview();
+    const f0 = base.findings[0]!;
+    return validReview({
+      verdict,
+      findings: severities.map((severity, i) => ({ ...f0, id: `F${i + 1}`, severity })),
+    });
+  }
+
+  it("recomputes overall as the weighted dimension sum", () => {
+    const r = validReview({ scores: { security: 40, correctness: 70, reliability: 80, tests: 60, quality: 75, overall: 999 } });
+    const out = validateSemantics(r);
+    expect(out.ok).toBe(true);
+    // 40*.3 + 70*.25 + 80*.2 + 60*.15 + 75*.1 = 12+17.5+16+9+7.5 = 62
+    if (out.ok) expect(out.review.scores.overall).toBe(62);
+  });
+
+  it("coerces a verified P0 with APPROVE down to REQUEST_CHANGES and grade ≤2", () => {
+    const out = validateSemantics(withFindings(["P0"], "APPROVE"));
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.review.verdict).toBe("REQUEST_CHANGES");
+      expect(out.review.mergability_confidence).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("coerces ≥2 verified P1s to REQUEST_CHANGES and grade ≤2", () => {
+    const out = validateSemantics(withFindings(["P1", "P1"], "APPROVE_WITH_COMMENTS"));
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.review.verdict).toBe("REQUEST_CHANGES");
+      expect(out.review.mergability_confidence).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("downgrades a single verified P1 + APPROVE to APPROVE_WITH_COMMENTS and grade ≤3", () => {
+    const out = validateSemantics(withFindings(["P1"], "APPROVE"));
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.review.verdict).toBe("APPROVE_WITH_COMMENTS");
+      expect(out.review.mergability_confidence).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("caps grade at 4 when only verified P2s exist, leaving the verdict alone", () => {
+    const r = withFindings(["P2"], "APPROVE_WITH_COMMENTS");
+    r.scores = { security: 95, correctness: 95, reliability: 95, tests: 95, quality: 95, overall: 95 };
+    const out = validateSemantics(r);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.review.verdict).toBe("APPROVE_WITH_COMMENTS");
+      expect(out.review.mergability_confidence).toBe(4); // band would be 5; P2 caps at 4
+    }
+  });
+
+  it("allows a clean APPROVE at 5/5 when there are no findings", () => {
+    const r = validReview({ verdict: "APPROVE", findings: [], discarded: [] });
+    r.scores = { security: 95, correctness: 95, reliability: 95, tests: 95, quality: 95, overall: 0 };
+    const out = validateSemantics(r);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.review.verdict).toBe("APPROVE");
+      expect(out.review.mergability_confidence).toBe(5);
+    }
   });
 });
 

@@ -133,7 +133,71 @@ export function validateSemantics(review: ReviewResult): { ok: true; review: Rev
   if (review.findings.length > 50) errors.push("findings exceeds 50 — cut to the highest-risk items (Operating Instruction 5)");
   if (review.top_actions.length > 10) review.top_actions = review.top_actions.slice(0, 10);
 
+  // Coerce (never error-loop) the verdict, grade, and overall score into
+  // mutual consistency with the verified findings, so a lenient self-assessment
+  // can't ship a verified P0 alongside an APPROVE.
+  enforceConsistency(review);
+
   return errors.length > 0 ? { ok: false, errors } : { ok: true, review };
+}
+
+const SCORE_WEIGHTS: Record<keyof ReviewResult["scores"], number> = {
+  security: 0.3,
+  correctness: 0.25,
+  reliability: 0.2,
+  tests: 0.15,
+  quality: 0.1,
+  overall: 0,
+};
+
+function gradeFromBand(overall: number): number {
+  if (overall >= 90) return 5;
+  if (overall >= 80) return 4;
+  if (overall >= 70) return 3;
+  if (overall >= 50) return 2;
+  return 1;
+}
+
+/**
+ * Recomputes `overall` from the weighted dimensions and reconciles the verdict
+ * and mergability grade with the verified findings, per the spec's grade table
+ * (5/5 = nothing above P3 verified · 4/5 = P2 only · 3/5 = a verified P1 ·
+ * 2/5 = a verified P0 or multiple P1s). Mutates in place.
+ */
+export function enforceConsistency(review: ReviewResult): void {
+  const s = review.scores;
+  s.overall = Math.round(
+    s.security * SCORE_WEIGHTS.security +
+      s.correctness * SCORE_WEIGHTS.correctness +
+      s.reliability * SCORE_WEIGHTS.reliability +
+      s.tests * SCORE_WEIGHTS.tests +
+      s.quality * SCORE_WEIGHTS.quality,
+  );
+
+  let p0 = 0;
+  let p1 = 0;
+  let p2 = 0;
+  for (const f of review.findings) {
+    if (f.severity === "P0") p0 += 1;
+    else if (f.severity === "P1") p1 += 1;
+    else p2 += 1;
+  }
+
+  let gradeCeiling = 5;
+  if (p0 > 0 || p1 >= 2) gradeCeiling = 2;
+  else if (p1 === 1) gradeCeiling = 3;
+  else if (p2 > 0) gradeCeiling = 4;
+
+  review.mergability_confidence = Math.min(gradeFromBand(s.overall), gradeCeiling);
+
+  // Verdict floor from findings.
+  if (p0 > 0 || p1 >= 2) {
+    if (review.verdict === "APPROVE" || review.verdict === "APPROVE_WITH_COMMENTS") {
+      review.verdict = "REQUEST_CHANGES";
+    }
+  } else if (p1 === 1 && review.verdict === "APPROVE") {
+    review.verdict = "APPROVE_WITH_COMMENTS";
+  }
 }
 
 const STRICT_UNSUPPORTED_KEYWORDS = new Set([
