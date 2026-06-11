@@ -1,7 +1,26 @@
 import { build } from "esbuild";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const root = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+
+// Vendor the tree-sitter runtime + grammar wasm into dist/grammars/ so the
+// committed bundle is self-contained (loaded at runtime by absolute path).
+const GRAMMAR_LANGS = ["typescript", "tsx", "javascript", "python", "go", "java"];
+const grammarsDir = path.join(root, "dist", "grammars");
+mkdirSync(grammarsDir, { recursive: true });
+copyFileSync(
+  path.join(root, "node_modules", "web-tree-sitter", "tree-sitter.wasm"),
+  path.join(grammarsDir, "tree-sitter.wasm"),
+);
+for (const lang of GRAMMAR_LANGS) {
+  copyFileSync(
+    path.join(root, "node_modules", "tree-sitter-wasms", "out", `tree-sitter-${lang}.wasm`),
+    path.join(grammarsDir, `tree-sitter-${lang}.wasm`),
+  );
+}
 
 const common = {
   bundle: true,

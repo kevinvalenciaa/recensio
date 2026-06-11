@@ -3,6 +3,7 @@ import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { sanitizeForStrictMode, submitReviewJsonSchema } from "./schema.js";
+import { astAvailable, classifyInSource, langForFile, loadLanguage } from "./references.js";
 
 export interface ToolResultPayload {
   content: string;
@@ -52,6 +53,14 @@ const GitDiffRangeInput = z.strictObject({
   path: z.string().optional().describe("Restrict the diff to a file or directory"),
 });
 
+const FindRefsInput = z.strictObject({
+  symbol: z.string().describe("Exact identifier to find references to (function, class, variable, type)"),
+  lang: z
+    .string()
+    .optional()
+    .describe("Override language (typescript|tsx|javascript|python|go|java); inferred from extension otherwise"),
+});
+
 function toInputSchema(schema: z.ZodType): Record<string, unknown> {
   const raw = z.toJSONSchema(schema) as Record<string, unknown>;
   delete raw.$schema;
@@ -91,6 +100,13 @@ export function toolDefinitions(withGit = false): ToolDef[] {
       description:
         "Search file contents across the PR head revision with git grep. Returns matching lines as path:lineno:text. Prefer grep then a targeted read_file over crawling directories.",
       input_schema: toInputSchema(GrepInput),
+      strict: true,
+    },
+    {
+      name: "find_references",
+      description:
+        "Find where a symbol is used across the repo, classified as declaration / call / import / reference (via AST parsing, so matches inside strings and comments are excluded). Use for blast-radius: callers of a changed function, consumers of a changed type. Falls back to a textual word match for unsupported languages.",
+      input_schema: toInputSchema(FindRefsInput),
       strict: true,
     },
   ];
@@ -373,6 +389,69 @@ export function makeTools(repoDir: string, opts: MakeToolsOptions = {}): RepoToo
     return runGitTool(args);
   }
 
+  /** git grep -nwF prefilter: candidate "path:line:text" hits for a literal symbol. */
+  function gitGrepWord(symbol: string): Promise<string[]> {
+    return new Promise((resolve) => {
+      const child = spawn("git", ["grep", "-n", "-w", "-F", "-I", "-e", symbol, "--", "."], {
+        cwd: root,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: GREP_TIMEOUT_MS,
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => {
+        if (stdout.length < GREP_MAX_BYTES * 8) stdout += d;
+      });
+      child.on("error", () => resolve([]));
+      child.on("close", () => resolve(stdout.split("\n").filter((l) => l !== "")));
+    });
+  }
+
+  async function findReferences(input: z.infer<typeof FindRefsInput>): Promise<ToolResultPayload> {
+    const hits = await gitGrepWord(input.symbol);
+    if (hits.length === 0) {
+      return { content: `No references to \`${input.symbol}\` found.`, isError: false };
+    }
+
+    // Group raw grep hits by file (cap files parsed).
+    const byFile = new Map<string, Array<{ line: number; text: string }>>();
+    for (const h of hits) {
+      const m = h.match(/^([^:]+):(\d+):(.*)$/);
+      if (!m) continue;
+      const file = m[1]!;
+      if (!byFile.has(file)) byFile.set(file, []);
+      byFile.get(file)!.push({ line: Number(m[2]), text: m[3]!.trim().slice(0, 200) });
+    }
+
+    const out: string[] = [];
+    const initOk = await astAvailable();
+    let classified = 0;
+
+    for (const [file, rawHits] of [...byFile.entries()].slice(0, 60)) {
+      const lang = initOk ? langForFile(file, input.lang) : undefined;
+      const language = lang ? await loadLanguage(lang) : null;
+      if (language) {
+        try {
+          const source = readFileSync(path.join(root, file), "utf8");
+          const refs = classifyInSource(language, source, input.symbol, file);
+          for (const r of refs) out.push(`${r.path}:${r.line}: ${r.kind} — ${r.text}`);
+          classified += 1;
+          continue;
+        } catch {
+          // fall through to raw hits for this file
+        }
+      }
+      for (const h of rawHits) out.push(`${file}:${h.line}: (unclassified text match) ${h.text}`);
+    }
+
+    let text = out.slice(0, 200).join("\n");
+    if (text.length > GREP_MAX_BYTES) text = text.slice(0, GREP_MAX_BYTES) + "\n[truncated]";
+    else if (out.length > 200) text += "\n[truncated — too many references; narrow with grep]";
+    if (classified === 0 && initOk === false) {
+      text = `(AST unavailable — showing textual word matches)\n${text}`;
+    }
+    return { content: text, isError: false };
+  }
+
   function readLinesSync(relPath: string): string[] | undefined {
     try {
       const candidate = path.resolve(root, relPath.replace(/^\/+/, ""));
@@ -404,6 +483,11 @@ export function makeTools(repoDir: string, opts: MakeToolsOptions = {}): RepoToo
             const parsed = GrepInput.safeParse(input);
             if (!parsed.success) return zodError(parsed.error);
             return await grep(parsed.data);
+          }
+          case "find_references": {
+            const parsed = FindRefsInput.safeParse(input);
+            if (!parsed.success) return zodError(parsed.error);
+            return await findReferences(parsed.data);
           }
           case "git_log":
           case "git_blame":

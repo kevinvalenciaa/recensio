@@ -22,6 +22,16 @@ beforeAll(() => {
     Array.from({ length: 950 }, (_, i) => `// line ${i + 1}: const q${i} = sanitize(input);`).join("\n"),
   );
   writeFileSync(path.join(repoDir, "src", "index.ts"), "export const main = () => 'hello recensio';\n");
+  writeFileSync(
+    path.join(repoDir, "src", "refs.ts"),
+    [
+      "import { widget } from './w';",
+      "function widget() { return 1; }",
+      "const a = widget();",
+      "const s = 'widget in a string';",
+      "// widget in a comment",
+    ].join("\n") + "\n",
+  );
   writeFileSync(path.join(repoDir, "binary.dat"), Buffer.from([0x00, 0x01, 0x02, 0xff]));
   symlinkSync(path.join(outside, "secret.txt"), path.join(repoDir, "escape.txt"));
 
@@ -60,18 +70,19 @@ describe("toolDefinitions", () => {
     expect(JSON.stringify(toolDefinitions())).toBe(JSON.stringify(toolDefinitions()));
   });
 
-  it("declares the four tools in fixed order, all strict", () => {
+  it("declares the base tools in fixed order, all strict", () => {
     const defs = toolDefinitions();
-    expect(defs.map((d) => d.name)).toEqual(["read_file", "list_dir", "grep", "submit_review"]);
+    expect(defs.map((d) => d.name)).toEqual(["read_file", "list_dir", "grep", "find_references", "submit_review"]);
     expect(defs.every((d) => d.strict)).toBe(true);
   });
 
-  it("inserts git tools between grep and submit_review when history is available", () => {
+  it("inserts git tools before submit_review when history is available", () => {
     const defs = toolDefinitions(true);
     expect(defs.map((d) => d.name)).toEqual([
       "read_file",
       "list_dir",
       "grep",
+      "find_references",
       "git_log",
       "git_blame",
       "git_diff_range",
@@ -167,6 +178,24 @@ describe("grep", () => {
   it("restricts to a path", async () => {
     const r = await tools.execute("grep", { pattern: "hello", path: "src/api" });
     expect(r.content).toContain("No matches");
+  });
+});
+
+describe("find_references", () => {
+  it("classifies declaration / call / import and excludes strings and comments", async () => {
+    const r = await tools.execute("find_references", { symbol: "widget" });
+    expect(r.isError).toBe(false);
+    expect(r.content).toContain("src/refs.ts:1: import");
+    expect(r.content).toContain("src/refs.ts:2: declaration");
+    expect(r.content).toContain("src/refs.ts:3: call");
+    // string (line 4) and comment (line 5) excluded by AST parsing
+    expect(r.content).not.toContain("src/refs.ts:4:");
+    expect(r.content).not.toContain("src/refs.ts:5:");
+  });
+
+  it("reports no references cleanly", async () => {
+    const r = await tools.execute("find_references", { symbol: "nonexistent_symbol_xyz" });
+    expect(r.content).toContain("No references");
   });
 });
 
