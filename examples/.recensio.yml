@@ -16,3 +16,14 @@ ignore:
   - "src/generated/**"
   - "**/*.pb.go"
   - "**/__snapshots__/**"
+
+# Checks run against the PR's checked-out code; their output is given to the
+# reviewer as ground truth. THIS EXECUTES YOUR REPO'S CODE, so it runs on
+# same-repo PRs only (never forks / pull_request_target), with a scrubbed env
+# (no API tokens) and per-command timeouts. Commands are whitespace-split and
+# run without a shell — keep them simple. Omit this block to run nothing.
+# checks:
+#   install: "npm ci --ignore-scripts"
+#   commands:
+#     - "npx tsc --noEmit"
+#     - "npx eslint ."

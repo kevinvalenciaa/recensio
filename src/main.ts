@@ -27,6 +27,7 @@ async function main(): Promise<void> {
     maxReviewsPerHour: core.getInput("max-reviews-per-hour"),
     resolveStaleFindings: core.getInput("resolve-stale-findings"),
     configPath: core.getInput("config-path"),
+    runChecks: core.getInput("run-checks"),
   });
   core.setSecret(cfg.anthropicApiKey);
 
@@ -75,7 +76,12 @@ async function main(): Promise<void> {
   }
 
   try {
-    const outcome = await runReview(trigger, cfg, ok, { serverUrl: process.env.GITHUB_SERVER_URL || undefined });
+    const outcome = await runReview(trigger, cfg, ok, {
+      serverUrl: process.env.GITHUB_SERVER_URL || undefined,
+      // Never run repo checks under pull_request_target (untrusted PR code,
+      // privileged token context).
+      allowChecks: eventName !== "pull_request_target",
+    });
 
     if (outcome.kind === "reviewed") {
       core.setOutput("skipped", "false");

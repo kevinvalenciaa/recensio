@@ -9,6 +9,7 @@ import { fetchDependencyChanges } from "../github/deps.js";
 import { resolveFixedFindings, type ResolutionTelemetry } from "../github/threads.js";
 import { loadConfig, isConfigIgnored } from "../github/config.js";
 import { fetchDismissedFindings } from "../github/feedback.js";
+import { runChecks } from "../checks/run.js";
 import { SKIP_MARKER, computeGate, skipCommentBody } from "../github/sizegate.js";
 import { findPrTemplate } from "../github/template.js";
 import { anthropicTurnRunner, runAgent, type TurnRunner } from "./agent.js";
@@ -25,6 +26,13 @@ export interface ReviewDeps {
   /** Injected by tests; defaults to a real shallow git fetch of pull/N/head. */
   clone?: typeof clonePrHead;
   serverUrl?: string;
+  /**
+   * Whether running repo checks is permitted by the event context. The Action
+   * sets this false under pull_request_target; defaults true (CLI / same-repo).
+   */
+  allowChecks?: boolean;
+  /** Injected by tests to avoid spawning real processes. */
+  runChecksFn?: typeof runChecks;
 }
 
 export async function runReview(
@@ -107,6 +115,17 @@ export async function runReview(
     }
 
     ctx.historyAvailable = cloned.historyAvailable;
+
+    // Run configured checks against the worktree — but only on same-repo PRs.
+    // This executes repository code, so forks and pull_request_target are
+    // hard-excluded regardless of config.
+    const isFork = ctx.meta.headRepoFullName !== `${owner}/${repo}`;
+    const checksAllowed = cfg.runChecks && deps.allowChecks !== false && !isFork;
+    if (ctx.repoConfig?.checks && checksAllowed) {
+      ctx.checkResults = await (deps.runChecksFn ?? runChecks)(ctx.repoConfig.checks, cloned.dir);
+    } else if (ctx.repoConfig?.checks && !checksAllowed) {
+      log.info(`checks configured but skipped (${isFork ? "fork PR" : "disabled for this event/config"})`);
+    }
 
     const tools = makeTools(cloned.dir, {
       gitConfigArgs: cloned.gitConfigArgs,

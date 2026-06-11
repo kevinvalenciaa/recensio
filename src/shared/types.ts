@@ -61,6 +61,8 @@ export interface PrContext {
   historyAvailable?: boolean;
   /** On re-review, the prior reviewed SHA when it's an ancestor of head (M5). */
   incrementalSinceSha?: string;
+  /** Results of configured checks run against the PR (M6), same-repo only. */
+  checkResults?: import("../checks/run.js").CheckResult[];
 }
 
 export interface GateResult {

@@ -88,7 +88,21 @@ By default, GitHub forbids the Actions token from **approving** PRs (Settings �
 
 ## Fork PRs
 
-The default `@recensio` comment path works for fork PRs as-is (`issue_comment` runs in the base repo with a write token). The caveat only applies to the opt-in `auto-review` mode: on `pull_request` events from forks, GitHub hands workflows a **read-only** token, so the review cannot be posted (Recensio fails with a clear message). For automatic fork reviews, switch that trigger to `pull_request_target` — the standard warning about it is executing untrusted PR code with elevated permissions; Recensio only `git fetch`es and *reads* the PR's files, never builds, installs, or executes them. The reviewed code does flow into the model's context, so treat the posted review text accordingly.
+The default `@recensio` comment path works for fork PRs as-is (`issue_comment` runs in the base repo with a write token). The caveat only applies to the opt-in `auto-review` mode: on `pull_request` events from forks, GitHub hands workflows a **read-only** token, so the review cannot be posted (Recensio fails with a clear message). For automatic fork reviews, switch that trigger to `pull_request_target`. The standard warning about `pull_request_target` is that it runs with elevated permissions in the base-repo context — so be deliberate: Recensio reads the PR's files into the model's context, and **if (and only if) you configure repo checks (below), those checks execute repository code.** Check execution is hard-disabled on forks and under `pull_request_target` precisely for this reason. With no `checks:` configured, Recensio `git fetch`es and *reads* the PR — it does not build, install, or execute it. Either way, the reviewed code flows into the model's context, so treat the posted review text accordingly.
+
+## Repo checks (optional, same-repo PRs only)
+
+If your `.recensio.yml` defines a `checks:` block, Recensio runs those commands against the PR's checked-out code and feeds the pass/fail output to the agent as ground truth — catching type errors, lint violations, and failing tests a read-only review can miss:
+
+```yaml
+checks:
+  install: "npm ci --ignore-scripts"   # optional; runs first, with lifecycle scripts disabled
+  commands:
+    - "npx tsc --noEmit"
+    - "npx eslint ."
+```
+
+**This executes your repository's code**, so it is locked down: commands come only from the **base branch's** `.recensio.yml` (never a PR's copy); they run **only on same-repo PRs** (forks and `pull_request_target` are hard-excluded); the child process gets a **scrubbed environment with no `ANTHROPIC_API_KEY` or `GITHUB_TOKEN`**; each command (and the install) has its own timeout and capped output. Set `run-checks: "false"` on the action to hard-disable regardless of config. Commands are whitespace-split and run without a shell, so keep them simple (`tool --flag arg`).
 
 ## Cost & runtime
 

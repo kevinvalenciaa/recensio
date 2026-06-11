@@ -27,9 +27,9 @@ describe("parseConfig", () => {
     expect(cfg.ignore).toEqual(["generated/**", "**/*.snap"]);
   });
 
-  it("reserves checks/history keys without failing", () => {
-    const cfg = parseConfig("checks:\n  install: npm ci\nhistory:\n  depth: 50");
-    expect(cfg.checks).toEqual({ install: "npm ci" });
+  it("parses a checks block and reserves history", () => {
+    const cfg = parseConfig("checks:\n  install: npm ci\n  commands:\n    - 'tsc --noEmit'\nhistory:\n  depth: 50");
+    expect(cfg.checks).toEqual({ install: "npm ci", commands: ["tsc --noEmit"] });
     expect(cfg.history).toEqual({ depth: 50 });
   });
 

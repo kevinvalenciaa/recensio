@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import nock from "nock";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { makeOctokit } from "../../src/github/client.js";
 import { runReview } from "../../src/engine/review.js";
@@ -311,6 +311,70 @@ describe("runReview end to end (mocked GitHub + scripted agent)", () => {
     expect(initial).toContain("previous_review");
     expect(initial).toContain("F1 [P0] src/api/users.ts:142");
     expect(initial).toContain("REQUEST CHANGES");
+  });
+
+  it("runs configured checks on a same-repo PR and gates them off for forks", async () => {
+    const checksYaml = "checks:\n  commands:\n    - 'tsc --noEmit'";
+    const contentReply = { type: "file", content: Buffer.from(checksYaml).toString("base64"), encoding: "base64" };
+
+    // Same-repo PR: checks run.
+    nock(API)
+      .get("/repos/acme/widgets/pulls/7")
+      .reply(200, prGetResponse())
+      .get("/repos/acme/widgets/pulls/7/files")
+      .query(true)
+      .reply(200, [fileEntry(400, 200)])
+      .get("/repos/acme/widgets/pulls/7/reviews")
+      .query(true)
+      .reply(200, [])
+      .get("/repos/acme/widgets")
+      .reply(200, { default_branch: "main" })
+      .get("/repos/acme/widgets/contents/.recensio.yml")
+      .query(true)
+      .reply(200, contentReply)
+      .get((u) => u.startsWith("/repos/acme/widgets/dependency-graph/compare/"))
+      .query(true)
+      .reply(200, [])
+      .post("/repos/acme/widgets/pulls/7/reviews")
+      .reply(200, { html_url: "u" });
+
+    const sameRepoSpy = vi.fn(async () => [{ name: "tsc", ok: false, timedOut: false, output: "error TS2304" }]);
+    await runReview(autoTrigger, cfg(), makeOctokit("t"), {
+      turnRunner: submittingRunner(validReview({ findings: [] })).runTurn,
+      clone: fakeClone(),
+      runChecksFn: sameRepoSpy as any,
+    });
+    expect(sameRepoSpy).toHaveBeenCalledOnce();
+
+    // Fork PR: same config, checks must NOT run.
+    const forkPr = { ...prGetResponse(), head: { ref: "feat", sha: HEAD_SHA, repo: { full_name: "forker/widgets" } } };
+    nock(API)
+      .get("/repos/acme/widgets/pulls/7")
+      .reply(200, forkPr)
+      .get("/repos/acme/widgets/pulls/7/files")
+      .query(true)
+      .reply(200, [fileEntry(400, 200)])
+      .get("/repos/acme/widgets/pulls/7/reviews")
+      .query(true)
+      .reply(200, [])
+      .get("/repos/acme/widgets")
+      .reply(200, { default_branch: "main" })
+      .get("/repos/acme/widgets/contents/.recensio.yml")
+      .query(true)
+      .reply(200, contentReply)
+      .get((u) => u.startsWith("/repos/acme/widgets/dependency-graph/compare/"))
+      .query(true)
+      .reply(200, [])
+      .post("/repos/acme/widgets/pulls/7/reviews")
+      .reply(200, { html_url: "u" });
+
+    const forkSpy = vi.fn(async () => []);
+    await runReview(autoTrigger, cfg(), makeOctokit("t"), {
+      turnRunner: submittingRunner(validReview({ findings: [] })).runTurn,
+      clone: fakeClone(),
+      runChecksFn: forkSpy as any,
+    });
+    expect(forkSpy).not.toHaveBeenCalled();
   });
 
   it("replies to and resolves a prior finding the agent reports fixed", async () => {

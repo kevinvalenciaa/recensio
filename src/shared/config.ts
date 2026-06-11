@@ -18,6 +18,8 @@ export interface Config {
   resolveStaleFindings: boolean;
   /** Path of the per-repo config file, read from the base default branch. */
   configPath: string;
+  /** Master switch for running repo checks (M6). Config still has to define them. */
+  runChecks: boolean;
   maxTokensPerTurn: number;
   /** Total characters of inline patches embedded in the first message. */
   patchCharBudget: number;
@@ -71,6 +73,7 @@ export interface RawConfigInputs {
   maxReviewsPerHour?: string;
   resolveStaleFindings?: string;
   configPath?: string;
+  runChecks?: string;
   dryRun?: boolean;
 }
 
@@ -92,6 +95,7 @@ export function buildConfig(raw: RawConfigInputs): Config {
     maxReviewsPerHour: parsePositiveInt(raw.maxReviewsPerHour, DEFAULTS.maxReviewsPerHour, "max-reviews-per-hour"),
     resolveStaleFindings: parseBool(raw.resolveStaleFindings, true),
     configPath: raw.configPath?.trim() || ".recensio.yml",
+    runChecks: parseBool(raw.runChecks, true),
     maxTokensPerTurn: DEFAULTS.maxTokensPerTurn,
     patchCharBudget: DEFAULTS.patchCharBudget,
     patchCharPerFile: DEFAULTS.patchCharPerFile,

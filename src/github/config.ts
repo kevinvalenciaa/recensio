@@ -8,13 +8,20 @@ export interface PathInstruction {
   guidance: string;
 }
 
+export interface ChecksConfig {
+  /** Optional dependency-install command, run before the checks. */
+  install?: string;
+  /** Commands to run; each is whitespace-split into argv (no shell). */
+  commands: string[];
+}
+
 export interface RecensioConfig {
   instructions: PathInstruction[];
   ignore: string[];
   /** Reserved for M5 (git history depth) — validated, currently inert. */
   history?: Record<string, unknown>;
-  /** Reserved for M6 (check commands) — validated, currently inert. */
-  checks?: Record<string, unknown>;
+  /** Check commands run against the PR (M6); same-repo PRs only. */
+  checks?: ChecksConfig;
 }
 
 export const EMPTY_CONFIG: RecensioConfig = { instructions: [], ignore: [] };
@@ -75,8 +82,18 @@ export function parseConfig(text: string): RecensioConfig {
     instructions,
     ignore,
     history: typeof raw.history === "object" && raw.history ? raw.history : undefined,
-    checks: typeof raw.checks === "object" && raw.checks ? raw.checks : undefined,
+    checks: parseChecks(raw.checks),
   };
+}
+
+function parseChecks(raw: any): ChecksConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const commands = Array.isArray(raw.commands)
+    ? raw.commands.filter((c: unknown) => typeof c === "string" && c.trim() !== "").slice(0, 10)
+    : [];
+  if (commands.length === 0) return undefined;
+  const install = typeof raw.install === "string" && raw.install.trim() !== "" ? raw.install : undefined;
+  return { install, commands };
 }
 
 /** Instructions whose glob matches at least one changed file. */

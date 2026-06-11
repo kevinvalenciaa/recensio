@@ -4,6 +4,7 @@ import type { GateResult, PrContext, TriggerContext } from "../shared/types.js";
 import { isExcludedFromGate } from "../github/sizegate.js";
 import { renderDependencyBlock } from "../github/deps.js";
 import { isConfigIgnored, matchedInstructions } from "../github/config.js";
+import { renderCheckBlock } from "../checks/run.js";
 
 /** A file is excluded from review attention if the gate or repo config drops it. */
 function excludedFromReview(ctx: PrContext, filename: string): boolean {
@@ -107,6 +108,10 @@ ${ctx.prTemplate.content}
 
   if (ctx.dependencyChanges) {
     sections.push(renderDependencyBlock(ctx.dependencyChanges));
+  }
+
+  if (ctx.checkResults && ctx.checkResults.length > 0) {
+    sections.push(renderCheckBlock(ctx.checkResults));
   }
 
   sections.push(buildPatchesSection(ctx, cfg));

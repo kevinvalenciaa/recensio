@@ -50,6 +50,10 @@ inputs:
     description: "Path (in the base repo's default branch) to the optional .recensio.yml config: per-path review instructions and ignore globs."
     required: false
     default: ".recensio.yml"
+  run-checks:
+    description: "Master switch for running the repo's configured checks (the .recensio.yml `checks:` block) against the PR. Checks execute repository code, so they run on same-repo PRs only — never forks or pull_request_target. Set false to hard-disable."
+    required: false
+    default: "true"
 
 outputs:
   verdict:
