@@ -76,8 +76,9 @@ describe("planPlacement", () => {
     expect(fallbacks).toHaveLength(0);
     expect(comments[0]).toMatchObject({ path: "src/app.ts", line: 11, side: "RIGHT" });
     expect(comments[0]!.start_line).toBeUndefined();
-    expect(comments[0]!.body).toContain("**🟠 P1 HIGH: test finding** · INTRODUCED · confidence 90/100 · `F1`");
-    expect(comments[0]!.body).toContain("**Issue**: x\n**Risk**: y\n**Trigger**: z\n**Verification trail**: w");
+    expect(comments[0]!.body).toContain("### **🟠 P1 HIGH: test finding (CONFIDENCE: 90/100)**");
+    expect(comments[0]!.body).not.toContain("INTRODUCED");
+    expect(comments[0]!.body).toContain("**Issue**: x\n\n**Risk**: y\n\n**Trigger**: z\n\n**Verification trail**: w");
     expect(comments[0]!.body).toContain("**AI Fix Prompt:**\n\n```\nIn src/app.ts:11, trace the flow to confirm the issue exists, then fix and run tests.\n```");
     expect(comments[0]!.body).toContain("<!-- recensio:finding:F1 -->");
   });
@@ -97,7 +98,8 @@ describe("planPlacement", () => {
     ]);
     expect(unconfirmedFallbacks).toHaveLength(0);
     expect(comments[0]).toMatchObject({ path: "src/app.ts", line: 11, side: "RIGHT" });
-    expect(comments[0]!.body).toContain("**⚠️ Unconfirmed — 🟠 P1 HIGH: test finding**");
+    expect(comments[0]!.body).toContain("### **🟠 P1 HIGH: test finding (CONFIDENCE: 90/100)**");
+    expect(comments[0]!.body).not.toContain("Unconfirmed —");
     expect(comments[0]!.body).toContain("**To confirm:** run the stress test");
     expect(comments[0]!.body).not.toContain("```suggestion");
     expect(comments[0]!.body).toContain("Proposed fix:");
@@ -108,7 +110,6 @@ describe("planPlacement", () => {
       { ...finding({ line: 500 }), to_confirm: "check prod logs" },
     ]);
     expect(comments).toHaveLength(0);
-    expect(unconfirmedFallbacks[0]!.renderedBody).toContain("⚠️ Unconfirmed —");
     expect(unconfirmedFallbacks[0]!.renderedBody).toContain("**To confirm:** check prod logs");
   });
 

@@ -170,10 +170,8 @@ function gateSuggestion(
   return suggestion;
 }
 
-function headerLine(finding: Finding, kind: "verified" | "unconfirmed"): string {
-  const badge = SEVERITY_BADGE[finding.severity];
-  const prefix = kind === "unconfirmed" ? "⚠️ Unconfirmed — " : "";
-  return `**${prefix}${badge}: ${finding.title}** · ${finding.provenance} · confidence ${finding.confidence}/100 · \`${finding.id}\``;
+function headerLine(finding: Finding, _kind: "verified" | "unconfirmed"): string {
+  return `### **${SEVERITY_BADGE[finding.severity]}: ${finding.title} (CONFIDENCE: ${finding.confidence}/100)**`;
 }
 
 function fieldLines(finding: Finding): string {
@@ -182,7 +180,7 @@ function fieldLines(finding: Finding): string {
     `**Risk**: ${finding.risk.trim()}`,
     `**Trigger**: ${finding.trigger.trim()}`,
     `**Verification trail**: ${finding.verification_trail.trim()}`,
-  ].join("\n");
+  ].join("\n\n");
 }
 
 function aiFixPromptBlock(finding: Finding): string {
