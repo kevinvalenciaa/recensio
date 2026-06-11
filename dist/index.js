@@ -36730,6 +36730,51 @@ async function upsertMarkerComment(ok, owner, repo, issueNumber, marker, body) {
   }
 }
 
+// src/github/ratelimit.ts
+var RATELIMIT_MARKER = "<!-- recensio:ratelimit -->";
+var WINDOW_MS = 60 * 60 * 1e3;
+async function checkReviewRateLimit(ok, owner, repo, limit2, currentRunId) {
+  if (limit2 <= 0 || currentRunId === void 0 || Number.isNaN(currentRunId)) {
+    return { limited: false, recentRuns: 0, limit: limit2 };
+  }
+  const cutoff = new Date(Date.now() - WINDOW_MS);
+  try {
+    const { data: currentRun } = await ok.rest.actions.getWorkflowRun({ owner, repo, run_id: currentRunId });
+    const { data } = await ok.rest.actions.listWorkflowRuns({
+      owner,
+      repo,
+      workflow_id: currentRun.workflow_id,
+      created: `>=${cutoff.toISOString()}`,
+      per_page: 100
+    });
+    const counted = data.workflow_runs.filter(
+      (r) => r.id !== currentRunId && r.conclusion !== "cancelled" && r.conclusion !== "skipped" && new Date(r.created_at) >= cutoff
+    ).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    if (counted.length < limit2) {
+      return { limited: false, recentRuns: counted.length, limit: limit2 };
+    }
+    const freeing = counted[counted.length - limit2];
+    return {
+      limited: true,
+      recentRuns: counted.length,
+      limit: limit2,
+      retryAt: new Date(new Date(freeing.created_at).getTime() + WINDOW_MS)
+    };
+  } catch (err) {
+    log.warn(
+      `rate-limit check unavailable (${err?.status ?? "?"}) \u2014 proceeding. Grant the workflow "actions: read" to enable it.`
+    );
+    return { limited: false, recentRuns: 0, limit: limit2 };
+  }
+}
+function rateLimitCommentBody(result) {
+  const retry = result.retryAt !== void 0 ? ` Try again after ${result.retryAt.toISOString().slice(11, 16)} UTC, or raise \`max-reviews-per-hour\`.` : "";
+  return [
+    `\u23F3 **Recensio is rate-limited:** ${result.recentRuns} runs in the past hour (limit ${result.limit}).${retry}`,
+    RATELIMIT_MARKER
+  ].join("\n");
+}
+
 // src/github/trigger.ts
 var COMMAND_RE = /(^|\s)[@/]recensio\b/i;
 var AUTO_ACTIONS = /* @__PURE__ */ new Set(["opened", "ready_for_review", "reopened"]);
@@ -52533,6 +52578,7 @@ var DEFAULTS2 = {
   effort: "xhigh",
   minLoc: 500,
   maxTurns: 40,
+  maxReviewsPerHour: 8,
   maxTokensPerTurn: 32e3,
   patchCharBudget: 24e4,
   patchCharPerFile: 3e4
@@ -52570,6 +52616,7 @@ function buildConfig(raw) {
     reviewOnSynchronize: parseBool(raw.reviewOnSynchronize, false),
     neverApprove: parseBool(raw.neverApprove, false),
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS2.maxTurns, "max-turns"),
+    maxReviewsPerHour: parsePositiveInt(raw.maxReviewsPerHour, DEFAULTS2.maxReviewsPerHour, "max-reviews-per-hour"),
     maxTokensPerTurn: DEFAULTS2.maxTokensPerTurn,
     patchCharBudget: DEFAULTS2.patchCharBudget,
     patchCharPerFile: DEFAULTS2.patchCharPerFile,
@@ -52590,7 +52637,8 @@ async function main() {
     autoReview: getInput("auto-review"),
     reviewOnSynchronize: getInput("review-on-synchronize"),
     neverApprove: getInput("never-approve"),
-    maxTurns: getInput("max-turns")
+    maxTurns: getInput("max-turns"),
+    maxReviewsPerHour: getInput("max-reviews-per-hour")
   });
   setSecret(cfg.anthropicApiKey);
   const eventName = process.env.GITHUB_EVENT_NAME ?? "";
@@ -52612,6 +52660,23 @@ async function main() {
       setOutput("skipped", "true");
       return;
     }
+  }
+  const rate = await checkReviewRateLimit(
+    ok,
+    trigger.owner,
+    trigger.repo,
+    cfg.maxReviewsPerHour,
+    Number(process.env.GITHUB_RUN_ID)
+  );
+  if (rate.limited) {
+    log.warn(`rate limit reached: ${rate.recentRuns} runs in the past hour (limit ${rate.limit})`);
+    await upsertMarkerComment(ok, trigger.owner, trigger.repo, trigger.prNumber, RATELIMIT_MARKER, rateLimitCommentBody(rate)).catch(
+      (err) => log.warn(`could not post rate-limit notice: ${String(err)}`)
+    );
+    setOutput("skipped", "true");
+    return;
+  }
+  if (trigger.kind === "command") {
     await reactEyes(ok, trigger.owner, trigger.repo, trigger.commentId);
   }
   try {

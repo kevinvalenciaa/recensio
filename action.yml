@@ -38,6 +38,10 @@ inputs:
     description: "Cap on agent tool-use turns before the review is forced to conclude"
     required: false
     default: "40"
+  max-reviews-per-hour:
+    description: "Per-repo cap on review runs per rolling hour (0 disables). Needs `actions: read` in the workflow permissions; without it the check is skipped with a warning."
+    required: false
+    default: "8"
 
 outputs:
   verdict:

@@ -31550,6 +31550,7 @@ var DEFAULTS2 = {
   effort: "xhigh",
   minLoc: 500,
   maxTurns: 40,
+  maxReviewsPerHour: 8,
   maxTokensPerTurn: 32e3,
   patchCharBudget: 24e4,
   patchCharPerFile: 3e4
@@ -31587,6 +31588,7 @@ function buildConfig(raw) {
     reviewOnSynchronize: parseBool(raw.reviewOnSynchronize, false),
     neverApprove: parseBool(raw.neverApprove, false),
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS2.maxTurns, "max-turns"),
+    maxReviewsPerHour: parsePositiveInt(raw.maxReviewsPerHour, DEFAULTS2.maxReviewsPerHour, "max-reviews-per-hour"),
     maxTokensPerTurn: DEFAULTS2.maxTokensPerTurn,
     patchCharBudget: DEFAULTS2.patchCharBudget,
     patchCharPerFile: DEFAULTS2.patchCharPerFile,

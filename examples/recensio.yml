@@ -25,6 +25,7 @@ permissions:
   contents: read # clone the PR head
   pull-requests: write # post reviews and inline comments
   issues: write # error notices and the 👀 reaction
+  actions: read # count recent runs for the reviews-per-hour limit
 
 jobs:
   review:

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import * as core from "@actions/core";
 import { makeOctokit } from "./github/client.js";
 import { upsertMarkerComment } from "./github/post.js";
+import { RATELIMIT_MARKER, checkReviewRateLimit, rateLimitCommentBody } from "./github/ratelimit.js";
 import { checkCommenterPermission, parseEvent, reactEyes } from "./github/trigger.js";
 import { runReview } from "./engine/review.js";
 import { buildConfig } from "./shared/config.js";
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
     reviewOnSynchronize: core.getInput("review-on-synchronize"),
     neverApprove: core.getInput("never-approve"),
     maxTurns: core.getInput("max-turns"),
+    maxReviewsPerHour: core.getInput("max-reviews-per-hour"),
   });
   core.setSecret(cfg.anthropicApiKey);
 
@@ -48,6 +50,25 @@ async function main(): Promise<void> {
       core.setOutput("skipped", "true");
       return;
     }
+  }
+
+  const rate = await checkReviewRateLimit(
+    ok,
+    trigger.owner,
+    trigger.repo,
+    cfg.maxReviewsPerHour,
+    Number(process.env.GITHUB_RUN_ID),
+  );
+  if (rate.limited) {
+    log.warn(`rate limit reached: ${rate.recentRuns} runs in the past hour (limit ${rate.limit})`);
+    await upsertMarkerComment(ok, trigger.owner, trigger.repo, trigger.prNumber, RATELIMIT_MARKER, rateLimitCommentBody(rate)).catch(
+      (err) => log.warn(`could not post rate-limit notice: ${String(err)}`),
+    );
+    core.setOutput("skipped", "true");
+    return;
+  }
+
+  if (trigger.kind === "command") {
     await reactEyes(ok, trigger.owner, trigger.repo, trigger.commentId!);
   }
 

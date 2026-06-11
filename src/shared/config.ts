@@ -12,6 +12,8 @@ export interface Config {
   reviewOnSynchronize: boolean;
   neverApprove: boolean;
   maxTurns: number;
+  /** Per-repo cap on reviews per hour (0 disables). Enforced in the Action only. */
+  maxReviewsPerHour: number;
   maxTokensPerTurn: number;
   /** Total characters of inline patches embedded in the first message. */
   patchCharBudget: number;
@@ -25,6 +27,7 @@ export const DEFAULTS = {
   effort: "xhigh" as Effort,
   minLoc: 500,
   maxTurns: 40,
+  maxReviewsPerHour: 8,
   maxTokensPerTurn: 32_000,
   patchCharBudget: 240_000,
   patchCharPerFile: 30_000,
@@ -61,6 +64,7 @@ export interface RawConfigInputs {
   reviewOnSynchronize?: string;
   neverApprove?: string;
   maxTurns?: string;
+  maxReviewsPerHour?: string;
   dryRun?: boolean;
 }
 
@@ -79,6 +83,7 @@ export function buildConfig(raw: RawConfigInputs): Config {
     reviewOnSynchronize: parseBool(raw.reviewOnSynchronize, false),
     neverApprove: parseBool(raw.neverApprove, false),
     maxTurns: parsePositiveInt(raw.maxTurns, DEFAULTS.maxTurns, "max-turns"),
+    maxReviewsPerHour: parsePositiveInt(raw.maxReviewsPerHour, DEFAULTS.maxReviewsPerHour, "max-reviews-per-hour"),
     maxTokensPerTurn: DEFAULTS.maxTokensPerTurn,
     patchCharBudget: DEFAULTS.patchCharBudget,
     patchCharPerFile: DEFAULTS.patchCharPerFile,

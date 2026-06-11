@@ -50,6 +50,7 @@ Only users with **write/maintain/admin** access can summon `@recensio`; bot comm
 | `review-on-synchronize` | `false` | With `auto-review`: also review every push |
 | `never-approve` | `false` | Post approval verdicts as `COMMENT` |
 | `max-turns` | `40` | Agent turn cap |
+| `max-reviews-per-hour` | `8` | Per-repo cap on review runs per rolling hour (`0` disables). Counts this workflow's recent runs, so it needs `actions: read` in the workflow permissions; throttled requests get a ⏳ notice naming the retry time. |
 
 Outputs: `verdict`, `review-url`, `skipped`.
 
