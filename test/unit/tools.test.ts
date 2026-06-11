@@ -70,10 +70,12 @@ describe("toolDefinitions", () => {
     expect(JSON.stringify(toolDefinitions())).toBe(JSON.stringify(toolDefinitions()));
   });
 
-  it("declares the base tools in fixed order, all strict", () => {
+  it("declares the base tools in fixed order, with only submit_review strict", () => {
     const defs = toolDefinitions();
     expect(defs.map((d) => d.name)).toEqual(["read_file", "list_dir", "grep", "find_references", "submit_review"]);
-    expect(defs.every((d) => d.strict)).toBe(true);
+    // Only submit_review is strict — keeping the navigation tools strict too
+    // overflows the API's combined constrained-decoding grammar limit.
+    expect(defs.filter((d) => d.strict).map((d) => d.name)).toEqual(["submit_review"]);
   });
 
   it("inserts git tools before submit_review when history is available", () => {

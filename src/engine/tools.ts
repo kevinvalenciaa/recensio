@@ -77,7 +77,13 @@ interface ToolDef {
 /**
  * Tool definitions in a fixed order so the cached prompt prefix stays
  * byte-stable. The git-history tools are appended in one fixed position (after
- * grep, before submit_review) only when history is available.
+ * find_references, before submit_review) only when history is available.
+ *
+ * Only `submit_review` is `strict`. The API compiles a constrained-decoding
+ * grammar per strict tool, and the sum of many strict grammars hits a hard
+ * size limit — so the navigation tools (which have trivial inputs and are
+ * zod-validated in execute() anyway) are left non-strict; the budget goes to
+ * the one tool where structured-output correctness matters.
  */
 export function toolDefinitions(withGit = false): ToolDef[] {
   const defs: ToolDef[] = [
@@ -86,28 +92,28 @@ export function toolDefinitions(withGit = false): ToolDef[] {
       description:
         "Read a file from the PR head revision with line numbers. Returns at most 400 lines per call; pass start_line/end_line to read a specific range. Line numbers shown are the head-revision numbers to use in findings.",
       input_schema: toInputSchema(ReadFileInput),
-      strict: true,
+      strict: false,
     },
     {
       name: "list_dir",
       description:
         "List files and directories under a path at the PR head revision. Directories are suffixed with '/'. Use to orient before reading.",
       input_schema: toInputSchema(ListDirInput),
-      strict: true,
+      strict: false,
     },
     {
       name: "grep",
       description:
         "Search file contents across the PR head revision with git grep. Returns matching lines as path:lineno:text. Prefer grep then a targeted read_file over crawling directories.",
       input_schema: toInputSchema(GrepInput),
-      strict: true,
+      strict: false,
     },
     {
       name: "find_references",
       description:
         "Find where a symbol is used across the repo, classified as declaration / call / import / reference (via AST parsing, so matches inside strings and comments are excluded). Use for blast-radius: callers of a changed function, consumers of a changed type. Falls back to a textual word match for unsupported languages.",
       input_schema: toInputSchema(FindRefsInput),
-      strict: true,
+      strict: false,
     },
   ];
   if (withGit) {
@@ -117,21 +123,21 @@ export function toolDefinitions(withGit = false): ToolDef[] {
         description:
           "List commits (hash, author, date, subject). Pass range like \"<baseSha>..HEAD\" to see only this PR's commits. Use to understand how the change was built and what each commit did.",
         input_schema: toInputSchema(GitLogInput),
-        strict: true,
+        strict: false,
       },
       {
         name: "git_blame",
         description:
           "Show, per line, the commit that last changed it. Use to confirm whether a line is genuinely INTRODUCED by this PR vs pre-existing (EXPOSED/PRE-EXISTING), rather than guessing.",
         input_schema: toInputSchema(GitBlameInput),
-        strict: true,
+        strict: false,
       },
       {
         name: "git_diff_range",
         description:
           'Show the diff between two commits, e.g. "<baseSha>..HEAD" for the whole PR or "<lastReviewedSha>..HEAD" to see only what changed since a prior review.',
         input_schema: toInputSchema(GitDiffRangeInput),
-        strict: true,
+        strict: false,
       },
     );
   }
