@@ -49,6 +49,7 @@ export async function clonePrHead(
   token: string,
   serverUrl = "https://github.com",
   baseSha = "",
+  run: typeof runGit = runGit,
 ): Promise<ClonedRepo> {
   const base = process.env.RUNNER_TEMP || tmpdir();
   const dir = await mkdtemp(path.join(base, "recensio-"));
@@ -61,29 +62,40 @@ export async function clonePrHead(
   const gitConfigArgs = ["-c", `http.${serverUrl}/.extraheader=${authHeader}`];
 
   try {
-    await runGit(["init", "-q"], dir);
+    await run(["init", "-q"], dir);
+    // A real `origin` remote (URL only, no token) so a blobless clone has a
+    // promisor to fault missing blobs from. The token is supplied per-command
+    // via gitConfigArgs and never written to .git/config.
+    await run(["remote", "add", "origin", url], dir);
     let historyAvailable = false;
 
     try {
-      // Blobless: all commits + trees, blobs on demand. Fetch the base commit
-      // too so merge-base / log base..HEAD / blame work.
-      await runGit(
-        [...gitConfigArgs, "fetch", "-q", "--filter=blob:none", url, `pull/${prNumber}/head`],
+      // Blobless: all commits + trees, blobs on demand from the promisor remote.
+      // Fetch the base commit too so merge-base / log base..HEAD / blame work.
+      await run(["config", "remote.origin.promisor", "true"], dir);
+      await run(["config", "remote.origin.partialclonefilter", "blob:none"], dir);
+      await run(
+        [...gitConfigArgs, "fetch", "-q", "--filter=blob:none", "origin", `pull/${prNumber}/head`],
         dir,
         300_000,
       );
-      await runGit(["checkout", "-q", "--detach", "FETCH_HEAD"], dir);
+      // checkout materializes HEAD's blobs — that on-demand fetch needs auth,
+      // so gitConfigArgs must be present here (the bug that broke v1).
+      await run([...gitConfigArgs, "checkout", "-q", "--detach", "FETCH_HEAD"], dir, 300_000);
       if (baseSha) {
-        await runGit([...gitConfigArgs, "fetch", "-q", "--filter=blob:none", url, baseSha], dir, 300_000);
+        await run([...gitConfigArgs, "fetch", "-q", "--filter=blob:none", "origin", baseSha], dir, 300_000);
       }
       historyAvailable = true;
     } catch (partialErr) {
       log.warn(`partial clone failed (${String(partialErr).slice(0, 200)}) — falling back to shallow; history tools disabled`);
-      await runGit([...gitConfigArgs, "fetch", "-q", "--depth=1", url, `pull/${prNumber}/head`], dir, 300_000);
-      await runGit(["checkout", "-q", "--detach", "FETCH_HEAD"], dir);
+      // Shallow + full blobs: checkout needs no faulting, but keep auth for the fetch.
+      await run(["config", "--unset", "remote.origin.promisor"], dir).catch(() => {});
+      await run(["config", "--unset", "remote.origin.partialclonefilter"], dir).catch(() => {});
+      await run([...gitConfigArgs, "fetch", "-q", "--depth=1", url, `pull/${prNumber}/head`], dir, 300_000);
+      await run([...gitConfigArgs, "checkout", "-q", "--detach", "FETCH_HEAD"], dir, 300_000);
     }
 
-    const { stdout } = await runGit(["rev-parse", "HEAD"], dir);
+    const { stdout } = await run(["rev-parse", "HEAD"], dir);
     const headSha = stdout.trim();
     log.info(
       `cloned ${owner}/${repo}#${prNumber} head ${headSha.slice(0, 10)} into ${dir} (history ${historyAvailable ? "available" : "unavailable"})`,

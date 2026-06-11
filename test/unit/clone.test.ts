@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isAncestor, runGit } from "../../src/github/clone.js";
+import { clonePrHead, isAncestor, runGit } from "../../src/github/clone.js";
 
 // Exercises the git-history primitives against a local bare repo over file://,
 // avoiding any network. (clonePrHead itself targets GitHub's pull/N/head ref,
@@ -64,5 +64,33 @@ describe("git history primitives", () => {
 
     const diff = await runGit(["diff", "--no-color", `${baseSha}..HEAD`], workDir);
     expect(diff.stdout).toContain("+two");
+  });
+});
+
+describe("clonePrHead auth invariant", () => {
+  it("passes the auth header to every blob-faulting command (checkout + fetches)", async () => {
+    // Regression guard for the v1 bug: a blobless checkout faults HEAD's blobs
+    // over the network and MUST carry the -c http.extraheader auth, or git
+    // prompts for credentials and exits 128.
+    const calls: string[][] = [];
+    const fakeRun = async (args: string[]) => {
+      calls.push(args);
+      if (args[0] === "rev-parse") return { stdout: "f".repeat(40), stderr: "" };
+      return { stdout: "", stderr: "" };
+    };
+    const cloned = await clonePrHead("o", "r", 5, "tok", "https://github.com", "b".repeat(40), fakeRun as any);
+    await cloned.cleanup();
+
+    const authArg = (a: string[]) => a.some((x) => x.startsWith("http.https://github.com/.extraheader="));
+    const finds = (verb: string) => calls.filter((a) => a.includes(verb));
+    // every checkout and every fetch must be authenticated
+    expect(finds("checkout").length).toBeGreaterThan(0);
+    for (const c of finds("checkout")) expect(authArg(c)).toBe(true);
+    for (const f of finds("fetch")) expect(authArg(f)).toBe(true);
+    // the token must never be written to git config
+    for (const c of calls.filter((a) => a[0] === "config")) {
+      expect(c.join(" ")).not.toContain("extraheader");
+      expect(c.join(" ")).not.toContain("tok");
+    }
   });
 });

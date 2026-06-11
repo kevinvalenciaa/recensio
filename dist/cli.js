@@ -26230,7 +26230,7 @@ function runGit(args2, cwd, timeoutMs = 12e4) {
     });
   });
 }
-async function clonePrHead(owner, repo, prNumber, token, serverUrl = "https://github.com", baseSha = "") {
+async function clonePrHead(owner, repo, prNumber, token, serverUrl = "https://github.com", baseSha = "", run2 = runGit) {
   const base = process.env.RUNNER_TEMP || (0, import_node_os.tmpdir)();
   const dir = await (0, import_promises2.mkdtemp)(import_node_path.default.join(base, "recensio-"));
   const cleanup = async () => {
@@ -26241,25 +26241,32 @@ async function clonePrHead(owner, repo, prNumber, token, serverUrl = "https://gi
   const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
   const gitConfigArgs = ["-c", `http.${serverUrl}/.extraheader=${authHeader}`];
   try {
-    await runGit(["init", "-q"], dir);
+    await run2(["init", "-q"], dir);
+    await run2(["remote", "add", "origin", url2], dir);
     let historyAvailable = false;
     try {
-      await runGit(
-        [...gitConfigArgs, "fetch", "-q", "--filter=blob:none", url2, `pull/${prNumber}/head`],
+      await run2(["config", "remote.origin.promisor", "true"], dir);
+      await run2(["config", "remote.origin.partialclonefilter", "blob:none"], dir);
+      await run2(
+        [...gitConfigArgs, "fetch", "-q", "--filter=blob:none", "origin", `pull/${prNumber}/head`],
         dir,
         3e5
       );
-      await runGit(["checkout", "-q", "--detach", "FETCH_HEAD"], dir);
+      await run2([...gitConfigArgs, "checkout", "-q", "--detach", "FETCH_HEAD"], dir, 3e5);
       if (baseSha) {
-        await runGit([...gitConfigArgs, "fetch", "-q", "--filter=blob:none", url2, baseSha], dir, 3e5);
+        await run2([...gitConfigArgs, "fetch", "-q", "--filter=blob:none", "origin", baseSha], dir, 3e5);
       }
       historyAvailable = true;
     } catch (partialErr) {
       log.warn(`partial clone failed (${String(partialErr).slice(0, 200)}) \u2014 falling back to shallow; history tools disabled`);
-      await runGit([...gitConfigArgs, "fetch", "-q", "--depth=1", url2, `pull/${prNumber}/head`], dir, 3e5);
-      await runGit(["checkout", "-q", "--detach", "FETCH_HEAD"], dir);
+      await run2(["config", "--unset", "remote.origin.promisor"], dir).catch(() => {
+      });
+      await run2(["config", "--unset", "remote.origin.partialclonefilter"], dir).catch(() => {
+      });
+      await run2([...gitConfigArgs, "fetch", "-q", "--depth=1", url2, `pull/${prNumber}/head`], dir, 3e5);
+      await run2([...gitConfigArgs, "checkout", "-q", "--detach", "FETCH_HEAD"], dir, 3e5);
     }
-    const { stdout } = await runGit(["rev-parse", "HEAD"], dir);
+    const { stdout } = await run2(["rev-parse", "HEAD"], dir);
     const headSha = stdout.trim();
     log.info(
       `cloned ${owner}/${repo}#${prNumber} head ${headSha.slice(0, 10)} into ${dir} (history ${historyAvailable ? "available" : "unavailable"})`
