@@ -109,10 +109,10 @@ describe("renderReviewBody", () => {
     );
     expect(body).toContain("<!-- recensio:review -->");
     expect(body).toContain(`<!-- recensio:commit:${"a".repeat(40)} -->`);
-    // mergability is the heading; the verdict (✅ for approve-with-comments
-    // family, 🔁 here) is the bold line under it
-    expect(body).toContain("## Mergability Confidence: 2/5");
-    expect(body).toContain("**🔁 REQUEST CHANGES**");
+    // mergability is the H1; the verdict (✅ for approve-with-comments
+    // family, 🔁 here) is the H2 under it
+    expect(body).toContain("# Mergability Confidence: 2/5");
+    expect(body).toContain("## 🔁 REQUEST CHANGES");
     expect(body).toContain("Adds a users endpoint; SQL injection found.");
     expect(body).not.toContain("### Summary");
     expect(body).toContain("| **OVERALL** | 100% | **60/100** |");
@@ -132,7 +132,7 @@ describe("renderReviewBody", () => {
   it("uses ✅ for APPROVE WITH COMMENTS", () => {
     const review = validReview({ verdict: "APPROVE_WITH_COMMENTS" });
     const body = renderReviewBody(review, { verified: [], unconfirmed: [] }, { headSha: "x", filesReviewed: 3, inlineCommentCount: 1 });
-    expect(body).toContain("**✅ APPROVE WITH COMMENTS**");
+    expect(body).toContain("## ✅ APPROVE WITH COMMENTS");
     expect(body).not.toContain("💬");
   });
 

@@ -36548,9 +36548,9 @@ function renderReviewBody(review, fallbacks, ctx) {
   s.push(`${REVIEW_MARKER}
 <!-- recensio:commit:${ctx.headSha} -->`);
   s.push(
-    `## Mergability Confidence: ${review.mergability_confidence}/5
+    `# Mergability Confidence: ${review.mergability_confidence}/5
 
-**${VERDICT_LABELS[review.verdict]}**
+## ${VERDICT_LABELS[review.verdict]}
 
 ${review.summary.trim()}`
   );

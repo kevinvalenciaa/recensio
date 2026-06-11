@@ -40,7 +40,7 @@ export function renderReviewBody(
   // Sections mirror the review spec's Phase 5 deliverable, in its order
   // (discarded renders last because the spec calls it an appendix).
   s.push(
-    `## Mergability Confidence: ${review.mergability_confidence}/5\n\n**${VERDICT_LABELS[review.verdict]}**\n\n${review.summary.trim()}`,
+    `# Mergability Confidence: ${review.mergability_confidence}/5\n\n## ${VERDICT_LABELS[review.verdict]}\n\n${review.summary.trim()}`,
   );
 
   s.push(
