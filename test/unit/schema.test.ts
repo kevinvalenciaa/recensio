@@ -76,8 +76,9 @@ describe("submitReviewJsonSchema", () => {
     // every property must be listed in required (or be genuinely optional)
     const props = Object.keys((schema as any).properties);
     expect(props).toEqual(
-      expect.arrayContaining(["verdict", "scores", "findings", "unconfirmed", "pre_merge_checklist", "nits_markdown"]),
+      expect.arrayContaining(["verdict", "scores", "findings", "unconfirmed", "nits_markdown"]),
     );
+    expect(props).not.toContain("pre_merge_checklist");
   });
 });
 

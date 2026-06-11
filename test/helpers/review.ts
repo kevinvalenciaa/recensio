@@ -27,7 +27,6 @@ export function validReview(overrides: Partial<ReviewResult> = {}): ReviewResult
     unconfirmed: [],
     discarded: ["F0 missing await — discarded (confidence 20): call is intentionally fire-and-forget"],
     required_tests: ["users endpoint rejects quote characters"],
-    pre_merge_checklist: "- [ ] Every new input surface is validated — name param unvalidated\n- [x] New logs exclude PII and secrets",
     top_actions: ["Parameterize the users query"],
     nits_markdown: "",
     ...overrides,

@@ -77,10 +77,6 @@ export function renderReviewBody(
     s.push(`### Required tests\n\n${review.required_tests.map((t) => `- [ ] ${t}`).join("\n")}`);
   }
 
-  if (review.pre_merge_checklist.trim() !== "") {
-    s.push(`### Pre-merge checklist\n\n${review.pre_merge_checklist.trim()}`);
-  }
-
   if (review.top_actions.length > 0) {
     s.push(`### Top actions\n\n${review.top_actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}`);
   }
@@ -157,10 +153,11 @@ export async function postReview(
       const detail = extractErrorText(err);
       log.warn(`createReview failed (status ${status ?? "?"}): ${detail.slice(0, 500)}`);
 
+      // Downgrades change only the review event — the body already opens with
+      // the verdict line, so no explanatory note is prepended.
       if (event === "APPROVE" && (status === 403 || status === 422)) {
         degraded.push(`approval not permitted (status ${status}) — posted as COMMENT instead`);
         event = "COMMENT";
-        body = approvalDowngradeNote(placed.verdict) + body;
         continue;
       }
       if (comments.length > 0 && status === 422) {
@@ -172,7 +169,6 @@ export async function postReview(
       if (status === 403 && event === "REQUEST_CHANGES") {
         degraded.push("REQUEST_CHANGES not permitted (403) — posted as COMMENT");
         event = "COMMENT";
-        body = `> Recensio verdict: **${placed.verdict.replace(/_/g, " ")}** (posted as a comment — the workflow token may not request changes on this PR).\n\n` + body;
         continue;
       }
 
@@ -189,10 +185,6 @@ export async function postReview(
     }
   }
   throw new Error("postReview exhausted its degradation ladder");
-}
-
-function approvalDowngradeNote(verdict: string): string {
-  return `> Recensio verdict: **${verdict.replace(/_/g, " ")}** — posted as a comment because the workflow token is not allowed to approve PRs (repo setting "Allow GitHub Actions to create and approve pull requests").\n\n`;
 }
 
 function foldCommentsIntoBody(body: string, comments: InlineComment[]): string {

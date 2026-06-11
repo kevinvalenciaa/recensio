@@ -65,11 +65,6 @@ export const SubmitReviewSchema = z.strictObject({
     .array(z.string())
     .describe('One line each: "[candidate] — discarded (confidence NN): [disproving evidence]"'),
   required_tests: z.array(z.string()).describe("One line each: test case → file/function it must cover"),
-  pre_merge_checklist: z
-    .string()
-    .describe(
-      "The spec's Pre-Merge Checklist as a markdown checkbox list: same 11 items in order, [x] verified or [ ] with a short reason, one line per item",
-    ),
   top_actions: z.array(z.string()).describe("Ranked by risk reduction, max 5, one line each"),
   nits_markdown: z.string().describe("ALL P3 nits as one batched markdown list; empty string if none"),
 });
@@ -96,11 +91,6 @@ export function validateSemantics(review: ReviewResult): { ok: true; review: Rev
   if (review.summary.length > 400) {
     errors.push(
       `summary is ${review.summary.length} chars — hard cap is 400. Compress to 1-2 sentences (intent + would-you-merge-today + driving factor)`,
-    );
-  }
-  if (review.pre_merge_checklist.length > 1800) {
-    errors.push(
-      `pre_merge_checklist is ${review.pre_merge_checklist.length} chars — one line per checklist item, nothing else`,
     );
   }
 

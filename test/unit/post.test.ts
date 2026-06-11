@@ -120,7 +120,7 @@ describe("renderReviewBody", () => {
     expect(body).toContain("### ⚠️ Unconfirmed (confidence 50–79)");
     expect(body).toContain("**To confirm:** run the stress test");
     expect(body).toContain("### Required tests");
-    expect(body).toContain("### Pre-merge checklist");
+    expect(body).not.toContain("Pre-merge checklist");
     expect(body).toContain("### Top actions");
     expect(body).toContain("### 🟢 Nits (batched, non-blocking)");
     expect(body).toContain("Discarded candidates (1)");
@@ -179,8 +179,8 @@ describe("postReview", () => {
     const result = await postReview(makeOctokit("tok"), ctx(), p, "sha");
     expect(result.degraded).toHaveLength(1);
     expect(bodies[1].event).toBe("COMMENT");
-    expect(bodies[1].body).toContain("not allowed to approve PRs");
-    expect(bodies[1].body).toContain("APPROVE WITH COMMENTS");
+    // the body is reposted unchanged — no downgrade note is prepended
+    expect(bodies[1].body).toBe(bodies[0].body);
   });
 
   it("retries without inline comments on anchor 422s, folding findings into the body", async () => {
